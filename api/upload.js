@@ -1,5 +1,10 @@
 // api/upload.js
-// Node.js ESM en Vercel. Requiere package.json con "type":"module"
+// Carga CSV de Jira -> TRUNCATE + INSERT en public.raw_jira
+// Reglas:
+// - Solo inserta columnas que EXISTEN ya en la DB (whitelist).
+// - Si el CSV trae cabeceras duplicadas (tras sanitizar), conserva la PRIMERA y descarta las demás.
+// - uploaded_at se llena con NOW() si existe la columna en la tabla.
+
 import { withClient } from './_db.js';
 import { parse as parseCsv } from 'csv-parse/sync';
 import formidable from 'formidable';
@@ -9,19 +14,19 @@ export const config = {
   api: { bodyParser: false }, // necesario para formidable
 };
 
-// Normaliza nombres de columnas -> snake_case seguro para Postgres
+// Sanitiza nombres igual que usamos para crear la tabla (snake_case ASCII)
 function sanitize(name) {
   return name
     .toString()
     .trim()
     .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\u0300-\u036f]/g, '') // quitar tildes
     .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, '_')
-    .replace(/^_+|_+$/g, '');
+    .replace(/[^a-z0-9]+/g, '_')     // no alfanum -> _
+    .replace(/^_+|_+$/g, '');        // sin _ al borde
 }
 
-// Detecta delimitador probable (coma o punto y coma) usando las primeras líneas
+// Detecta delimitador probable (coma o punto y coma)
 function sniffDelimiter(sampleText) {
   const head = sampleText.split(/\r?\n/).slice(0, 5).join('\n');
   const commas = (head.match(/,/g) || []).length;
@@ -29,7 +34,7 @@ function sniffDelimiter(sampleText) {
   return semis > commas ? ';' : ',';
 }
 
-// Convierte "" -> null, deja otros valores intactos
+// "" -> null
 function toDb(v) {
   if (v === '') return null;
   return v;
@@ -42,27 +47,25 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1) Parsear multipart con formidable
+    // 1) Parsear multipart
     const form = formidable({
       multiples: false,
-      maxFileSize: 10 * 1024 * 1024, // 10 MB
+      maxFileSize: 25 * 1024 * 1024, // 25MB por si tu CSV crece
       keepExtensions: true,
     });
-
     const { files } = await new Promise((resolve, reject) => {
       form.parse(req, (err, fields, files) => {
         if (err) return reject(err);
         resolve({ fields, files });
       });
     });
-
     const fvals = Object.values(files || {});
     if (fvals.length === 0) {
       return res.status(400).json({ ok: false, error: 'Archivo no encontrado en el form-data (key "file")' });
     }
     const up = Array.isArray(fvals[0]) ? fvals[0][0] : fvals[0];
 
-    // 2) Leemos el archivo
+    // 2) Leer archivo
     const buf = await fs.readFile(up.filepath);
     const text = buf.toString('utf8');
 
@@ -75,74 +78,108 @@ export default async function handler(req, res) {
       relax_column_count: true,
       relax_quotes: true,
       delimiter,
-      cast: (value, context) => {
-        // No forzamos numéricos aquí (raw), solo vacíos a null
-        return toDb(value);
-      },
+      cast: (value) => toDb(value),
     });
-
     if (!rows.length) {
       return res.status(400).json({ ok: false, error: 'CSV vacío' });
     }
 
-    // 4) Conexión y carga a BD
-    const inserted = await withClient(async (client) => {
-      // Leer columnas reales de la tabla
+    // 4) Preparar header del CSV con control de duplicados
+    const originalHeader = Object.keys(rows[0]);
+    const seen = new Set();
+    const headerKept = [];          // nombres sanitizados que conservamos
+    const headerKeptOriginals = []; // nombres originales correspondientes
+    const dupesDiscarded = [];      // lista de duplicados descartados (original -> sane)
+
+    for (const h of originalHeader) {
+      const sane = sanitize(h);
+      if (!sane) continue; // ignora vacíos tras sanitizar
+      if (seen.has(sane)) {
+        dupesDiscarded.push({ original: h, sane });
+        continue; // descarta duplicados, conservamos la primera aparición
+      }
+      seen.add(sane);
+      headerKept.push(sane);
+      headerKeptOriginals.push(h);
+    }
+
+    // 5) Conexión y carga a BD
+    const result = await withClient(async (client) => {
+      // Columnas existentes en la tabla (whitelist)
       const { rows: cols } = await client.query(`
         SELECT column_name
         FROM information_schema.columns
         WHERE table_schema = 'public' AND table_name = 'raw_jira'
-        ORDER BY ordinal_position
       `);
 
-      const tableColumns = cols.map(r => r.column_name);
-      if (tableColumns.length === 0) {
-        throw new Error('La tabla public.raw_jira no existe o no tiene columnas.');
+      const tableColumnsSet = new Set(cols.map(r => r.column_name));
+      if (tableColumnsSet.size === 0) throw new Error('La tabla public.raw_jira no existe o no tiene columnas.');
+
+      // Columnas que SÍ vamos a insertar: intersección (excluye id; uploaded_at lo añadimos nosotros)
+      const allowedInsertCols = headerKept.filter(c => tableColumnsSet.has(c) && c !== 'id' && c !== 'uploaded_at');
+
+      // Si no hay intersección, error explícito
+      if (!allowedInsertCols.length) {
+        throw new Error('Ninguna columna del CSV coincide con columnas de public.raw_jira.');
       }
 
-      // Header sanitizado desde el CSV
-      const header = Object.keys(rows[0]).map(sanitize);
-      // Tomamos el INTERSECT entre columnas del CSV y columnas reales de la tabla
-      const insertCols = tableColumns.filter(c => header.includes(c));
-      if (insertCols.length === 0) {
-        throw new Error('Ninguna columna del CSV coincide con las columnas de public.raw_jira (tras sanitizar nombres).');
-      }
+      // ¿Tenemos uploaded_at en la tabla?
+      const hasUploadedAt = tableColumnsSet.has('uploaded_at');
 
-      // Mapear valores en el orden de insertCols
+      // Mapear filas → valores en orden de allowedInsertCols
       const values = rows.map((row) => {
-        const sane = {};
-        for (const [k, v] of Object.entries(row)) sane[sanitize(k)] = v;
-        return insertCols.map((c) => sane[c] ?? null);
+        const saneRow = {};
+        for (const [k, v] of Object.entries(row)) saneRow[sanitize(k)] = v;
+        const arr = allowedInsertCols.map((c) => (c in saneRow ? toDb(saneRow[c]) : null));
+        return arr;
       });
+
+      // Configurar SQL de inserción
+      // Si existe uploaded_at, lo seteamos a NOW() para todas las filas
+      const insertCols = hasUploadedAt ? [...allowedInsertCols, 'uploaded_at'] : [...allowedInsertCols];
 
       await client.query('BEGIN');
       try {
-        // Borrado total del snapshot anterior
         await client.query('TRUNCATE TABLE public.raw_jira RESTART IDENTITY');
 
-        // Inserción por lotes
         const batchSize = 1000;
         let total = 0;
         for (let i = 0; i < values.length; i += batchSize) {
           const chunk = values.slice(i, i + batchSize);
+
+          // Parametrización
           const placeholders = chunk
-            .map((_, r) => `(${insertCols.map((__, c) => `$${r * insertCols.length + c + 1}`).join(',')})`)
+            .map((_, r) => {
+              const base = insertCols.length - (hasUploadedAt ? 1 : 0);
+              const idxs = [];
+              for (let c = 0; c < base; c++) {
+                idxs.push(`$${r * base + c + 1}`);
+              }
+              // uploaded_at = NOW() (no es parámetro)
+              return hasUploadedAt ? `(${idxs.join(',')}, NOW())` : `(${idxs.join(',')})`;
+            })
             .join(',');
 
+          const flatParams = chunk.flat(); // solo params de las columnas permitidas (sin uploaded_at)
           const sql = `INSERT INTO public.raw_jira(${insertCols.join(',')}) VALUES ${placeholders}`;
-          await client.query(sql, chunk.flat());
+          await client.query(sql, flatParams);
           total += chunk.length;
         }
 
         await client.query('COMMIT');
-        return total;
+        return {
+          inserted: total,
+          allowedInsertCols,
+          ignoredNewCsvCols: headerKept.filter(c => !tableColumnsSet.has(c)), // columnas que venían en CSV pero NO están en DB (se ignoran)
+          dupesDiscarded,
+        };
       } catch (e) {
         await client.query('ROLLBACK');
         throw e;
       }
     });
 
-    return res.status(200).json({ ok: true, rows: inserted });
+    return res.status(200).json({ ok: true, ...result });
   } catch (err) {
     console.error('UPLOAD_ERROR:', err);
     return res.status(500).json({ ok: false, error: err?.message || String(err) });
