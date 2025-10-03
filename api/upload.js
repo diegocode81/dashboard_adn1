@@ -1,111 +1,155 @@
 // api/upload.js
-// Serverless Function (Node.js) para subir CSV y cargarlo a Postgres (Neon)
-const { Pool } = require("pg");
-const Busboy = require("busboy");
-const { parse } = require("csv-parse/sync");
+const Busboy = require('busboy');
+const { parse } = require('csv-parse/sync');
+const { Client } = require('pg');
 
-const TABLE = process.env.TABLE_NAME || "jira_raw";
-const DATABASE_URL = process.env.DATABASE_URL;
+function parseCsv(buffer) {
+  const text = buffer.toString('utf8');
+  const records = parse(text, {
+    columns: true,
+    skip_empty_lines: true
+  });
+  return { headers: Object.keys(records[0] || {}), rows: records };
+}
 
-function sqlId(s) {
-  return s
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_]+/g, "_")
-    .replace(/^_+|_+$/g, "");
+function mapColumns(cols) {
+  // Normaliza nombres: snake_case y mínimas transformaciones
+  return cols.map(c =>
+    c
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+      .replace(/[^a-z0-9_]/g, '')
+  );
+}
+
+function guessTypes(rows, headers) {
+  // Heurística simple: si todas las filas son números -> numeric
+  const types = {};
+  headers.forEach((h) => {
+    let allNumeric = true;
+    for (const r of rows) {
+      const v = (r[h] ?? '').toString().trim();
+      if (v === '' || v.toLowerCase() === 'null') continue;
+      if (isNaN(Number(v))) { allNumeric = false; break; }
+    }
+    types[h] = allNumeric ? 'numeric' : 'text';
+  });
+  return types;
+}
+
+async function upsertTable(client, table, headers, rows) {
+  // Normaliza columnas
+  const norm = mapColumns(headers);
+  const types = guessTypes(rows, headers);
+
+  // Crea tabla si no existe
+  const colsDDL = norm.map((n, i) => `"${n}" ${types[headers[i]]}`).join(', ');
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS "${table}" (
+      id bigserial PRIMARY KEY,
+      ${colsDDL}
+    )
+  `);
+
+  // Trunca
+  await client.query(`TRUNCATE TABLE "${table}"`);
+
+  // Inserta por lotes
+  const batchSize = 1000;
+  let inserted = 0;
+
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const slice = rows.slice(i, i + batchSize);
+    const values = [];
+    const placeholders = [];
+
+    slice.forEach((r, idx) => {
+      const rowValues = norm.map((n, j) => r[headers[j]] ?? null);
+      values.push(...rowValues);
+      const base = idx * norm.length;
+      const ph = norm.map((_, k) => `$${base + k + 1}`);
+      placeholders.push(`(${ph.join(',')})`);
+    });
+
+    const sql = `
+      INSERT INTO "${table}" (${norm.map(n => `"${n}"`).join(', ')})
+      VALUES ${placeholders.join(', ')}
+    `;
+    await client.query(sql, values);
+    inserted += slice.length;
+  }
+
+  return inserted;
 }
 
 module.exports = async (req, res) => {
-  const started = Date.now();
-
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
-    return res.status(405).json({ ok: false, error: "Method Not Allowed" });
-  }
-
-  if (!DATABASE_URL) {
-    return res.status(500).json({ ok: false, error: "Missing env DATABASE_URL" });
+  const start = Date.now();
+  if (req.method !== 'POST') {
+    return res.status(405).json({ ok: false, error: 'Method not allowed' });
   }
 
   try {
-    // Leer multipart/form-data con Busboy
-    const busboy = Busboy({ headers: req.headers });
-    let fileBuffer = Buffer.alloc(0);
-    let fileFound = false;
+    const DATABASE_URL = process.env.DATABASE_URL;
+    const TABLE_NAME = process.env.TABLE_NAME || 'jira_raw';
 
-    await new Promise((resolve, reject) => {
-      busboy.on("file", (name, file) => {
+    if (!DATABASE_URL) {
+      return res.status(500).json({ ok: false, error: 'Missing env DATABASE_URL' });
+    }
+
+    // ---- parse multipart con Busboy ----
+    const buf = await new Promise((resolve, reject) => {
+      const bb = Busboy({ headers: req.headers });
+      let chunks = [];
+      let fileFound = false;
+
+      bb.on('file', (_name, file) => {
         fileFound = true;
-        file.on("data", (d) => (fileBuffer = Buffer.concat([fileBuffer, d])));
-        file.on("error", reject);
-        file.on("end", () => {});
+        file.on('data', (d) => chunks.push(d));
+        file.on('end', () => {});
       });
-      busboy.on("error", reject);
-      busboy.on("finish", resolve);
-      req.pipe(busboy);
+
+      bb.on('error', reject);
+      bb.on('finish', () => {
+        if (!fileFound) return reject(new Error('No file field found'));
+        resolve(Buffer.concat(chunks));
+      });
+
+      req.pipe(bb);
     });
 
-    if (!fileFound) {
-      return res.status(400).json({ ok: false, error: "No file received" });
+    const { headers, rows } = parseCsv(buf);
+    if (!rows.length) {
+      return res.status(400).json({ ok: false, error: 'CSV without rows' });
     }
 
-    const csvText = fileBuffer.toString("utf8");
-
-    // Parse CSV
-    const records = parse(csvText, {
-      columns: true,
-      skip_empty_lines: true,
-      bom: true,
-    });
-
-    if (!records.length) {
-      return res.status(400).json({ ok: false, error: "CSV sin filas" });
-    }
-
-    const headers = Object.keys(records[0]);
-    const colsSql = headers.map((h) => `"${sqlId(h)}"`);
-
-    const pool = new Pool({
+    const client = new Client({
       connectionString: DATABASE_URL,
-      ssl: { rejectUnauthorized: false },
+      ssl: { rejectUnauthorized: false }
+    });
+    await client.connect();
+
+    let inserted = 0;
+    try {
+      inserted = await upsertTable(client, TABLE_NAME, headers, rows);
+    } finally {
+      await client.end();
+    }
+
+    return res.status(200).json({
+      ok: true,
+      table: TABLE_NAME,
+      inserted,
+      elapsed_ms: Date.now() - start
     });
 
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      await client.query(`TRUNCATE TABLE ${TABLE}`);
-
-      // Inserción por lotes
-      const BATCH = 500;
-      for (let i = 0; i < records.length; i += BATCH) {
-        const slice = records.slice(i, i + BATCH);
-        const values = [];
-        const rowsSql = [];
-
-        slice.forEach((row) => {
-          const placeholders = headers.map((_, j) => `$${values.length + j + 1}`);
-          rowsSql.push(`(${placeholders.join(",")})`);
-          for (const h of headers) {
-            const v = row[h];
-            values.push(v === "" ? null : v);
-          }
-        });
-
-        const sql = `INSERT INTO ${TABLE} (${colsSql.join(",")}) VALUES ${rowsSql.join(",")}`;
-        await client.query(sql, values);
-      }
-
-      await client.query("COMMIT");
-      client.release();
-
-      const elapsed = Date.now() - started;
-      return res.json({ ok: true, table: TABLE, inserted: records.length, elapsed_ms: elapsed });
-    } catch (e) {
-      try { await client.query("ROLLBACK"); } catch {}
-      client.release();
-      return res.status(500).json({ ok: false, error: e.message || String(e) });
-    }
-  } catch (e) {
-    return res.status(500).json({ ok: false, error: e.message || String(e) });
+  } catch (err) {
+    // Log y respuesta JSON (evitamos HTML)
+    console.error('[upload] error:', err);
+    return res.status(500).json({
+      ok: false,
+      error: err.message,
+      stack: err.stack
+    });
   }
 };
