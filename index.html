@@ -1,49 +1,37 @@
-<!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8" />
-  <title>Subir CSV de Jira → Cargar en Base</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; padding: 24px; max-width: 900px; margin: auto; }
-    h1 { font-size: 38px; margin-bottom: 16px; }
-    .card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 24px; }
-    .btn { padding: 12px 18px; border-radius: 10px; background: #2563eb; color: white; border: 0; cursor: pointer; }
-    #out { margin-top: 16px; white-space: pre-wrap; }
-  </style>
-</head>
-<body>
-  <h1>Subir CSV de Jira → Cargar en Base</h1>
+<!-- index.html (solo el formulario con el JS) -->
+<form id="f">
+  <input type="file" id="file" name="file" accept=".csv" required />
+  <button type="submit" id="btn">Subir y cargar</button>
+</form>
 
-  <div class="card">
-    <p>Formato: CSV de Jira (filtro <code>project = ADN1</code>). Cada carga TRUNCA la tabla y deja el snapshot más reciente.</p>
-    <input id="file" type="file" accept=".csv,text/csv" />
-    <button class="btn" id="send">Subir y cargar</button>
-    <div id="out"></div>
-  </div>
+<pre id="out"></pre>
 
-  <script>
-    const out = document.getElementById('out');
-    document.getElementById('send').onclick = async () => {
-      out.textContent = 'Subiendo…';
-      const f = document.getElementById('file').files[0];
-      if (!f) { out.textContent = 'Selecciona un CSV.'; return; }
-      const text = await f.text();
+<script>
+  const f = document.getElementById('f');
+  const out = document.getElementById('out');
+  const btn = document.getElementById('btn');
 
-      const resp = await fetch('/api/upload', {
-        method: 'POST',
-        headers: { 'Content-Type':'text/csv; charset=utf-8' },
-        body: text
-      });
+  f.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    out.textContent = '';
+    btn.disabled = true;
+
+    try {
+      const fd = new FormData(f);             // NO pongas Content-Type manual; el navegador añade el boundary
+      const resp = await fetch('/api/upload', { method: 'POST', body: fd });
 
       const ct = resp.headers.get('content-type') || '';
       if (!ct.includes('application/json')) {
-        out.textContent = 'Error: la API no devolvió JSON.';
+        const text = await resp.text();
+        out.textContent = `Error: la API no devolvió JSON.\n\nStatus: ${resp.status}\n\nRespuesta:\n${text}`;
         return;
       }
-      const json = await resp.json();
-      out.textContent = JSON.stringify(json, null, 2);
-    };
-  </script>
-</body>
-</html>
+      const data = await resp.json();
+      out.textContent = JSON.stringify(data, null, 2);
+    } catch (err) {
+      out.textContent = `Error de red/JS: ${err?.message || err}`;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+</script>
