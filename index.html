@@ -1,37 +1,70 @@
-<!-- index.html (solo el formulario con el JS) -->
-<form id="f">
-  <input type="file" id="file" name="file" accept=".csv" required />
-  <button type="submit" id="btn">Subir y cargar</button>
-</form>
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Subir CSV de Jira → Cargar en Base</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: #0b0b0c; color: #eaeaea; }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 48px 20px; }
+    h1 { font-size: clamp(28px, 4vw, 48px); margin: 0 0 28px; line-height: 1.1; }
+    .card { background: #121214; border: 1px solid #222; border-radius: 14px; padding: 28px; }
+    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 18px 0; }
+    input[type="file"] { padding: 10px; background: #1b1b1d; border: 1px solid #333; border-radius: 10px; }
+    button { background: #3b82f6; color: #fff; border: 0; padding: 12px 18px; border-radius: 12px; font-weight: 600; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: not-allowed; }
+    pre { background: #0e0e0f; border: 1px solid #222; border-radius: 12px; padding: 14px; overflow: auto; }
+    .muted { color: #9aa0a6; }
+    a { color: #93c5fd; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Subir CSV de Jira → Cargar en Base</h1>
+    <div class="card">
+      <p class="muted">
+        Formato: CSV exportado desde Jira (filtro <code>project = ADN1</code>).<br/>
+        Cada carga <strong>TRUNCA</strong> la tabla <code>raw_jira</code> y deja el snapshot más reciente.
+      </p>
 
-<pre id="out"></pre>
+      <form id="f" class="row">
+        <input type="file" id="file" name="file" accept=".csv" required />
+        <button type="submit" id="btn">Subir y cargar</button>
+      </form>
 
-<script>
-  const f = document.getElementById('f');
-  const out = document.getElementById('out');
-  const btn = document.getElementById('btn');
+      <pre id="out" class="muted">Listo para subir…</pre>
+    </div>
+  </div>
 
-  f.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    out.textContent = '';
-    btn.disabled = true;
+  <script>
+    const f = document.getElementById('f');
+    const out = document.getElementById('out');
+    const btn = document.getElementById('btn');
 
-    try {
-      const fd = new FormData(f);             // NO pongas Content-Type manual; el navegador añade el boundary
-      const resp = await fetch('/api/upload', { method: 'POST', body: fd });
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      out.textContent = 'Subiendo y procesando…';
+      btn.disabled = true;
 
-      const ct = resp.headers.get('content-type') || '';
-      if (!ct.includes('application/json')) {
-        const text = await resp.text();
-        out.textContent = `Error: la API no devolvió JSON.\n\nStatus: ${resp.status}\n\nRespuesta:\n${text}`;
-        return;
+      try {
+        const fd = new FormData(f);
+        const resp = await fetch('/api/upload', { method: 'POST', body: fd });
+
+        const ct = resp.headers.get('content-type') || '';
+        if (!ct.includes('application/json')) {
+          const text = await resp.text();
+          out.textContent = `Error: la API no devolvió JSON.\n\nStatus: ${resp.status}\n\nRespuesta:\n${text}`;
+          return;
+        }
+        const data = await resp.json();
+        out.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        out.textContent = `Error de red/JS: ${err?.message || err}`;
+      } finally {
+        btn.disabled = false;
       }
-      const data = await resp.json();
-      out.textContent = JSON.stringify(data, null, 2);
-    } catch (err) {
-      out.textContent = `Error de red/JS: ${err?.message || err}`;
-    } finally {
-      btn.disabled = false;
-    }
-  });
-</script>
+    });
+  </script>
+</body>
+</html>

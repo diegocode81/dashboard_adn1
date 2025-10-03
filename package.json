@@ -1,12 +1,9 @@
 {
-  "name": "dashboard_adn1",
   "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "vercel dev"
-  },
+  "engines": { "node": "20.x" },
   "dependencies": {
-    "csv-parse": "^5.5.6",
-    "pg": "^8.12.0"
+    "pg": "^8.11.5",
+    "busboy": "^1.6.0",
+    "csv-parse": "^5.5.4"
   }
 }
