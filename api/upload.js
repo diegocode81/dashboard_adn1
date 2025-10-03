@@ -1,4 +1,10 @@
 // api/upload.js
+// Carga CSV de Jira -> TRUNCATE + INSERT en public.raw_jira
+// - SOLO inserta columnas que EXISTEN en la DB (whitelist).
+// - Manejo de cabeceras duplicadas sin perder valores (p. ej., "sprint" x N).
+// - Duplicados de "sprint": mapea hasta 7 ocurrencias -> sprint, sprint1..sprint6.
+// - uploaded_at = NOW() (si existe en la tabla).
+
 import { withClient } from './_db.js';
 import { parse as parseCsv } from 'csv-parse/sync';
 import formidable from 'formidable';
@@ -29,7 +35,7 @@ function toDb(v) {
   return v;
 }
 
-// Genera nombres únicos para cabeceras duplicadas sin perder ninguna
+// Genera claves únicas para cabeceras duplicadas (no perdemos valores)
 function makeUniqueHeaders(rawHeaders) {
   const counts = new Map();
   const uniques = [];
@@ -40,7 +46,7 @@ function makeUniqueHeaders(rawHeaders) {
       uniques.push({ uniqueKey: sane, base: sane, original: h, occ: 0 });
       counts.set(sane, 1);
     } else {
-      const uniqueKey = `${sane}__dup${seen}`; // ej: sprint__dup1, sprint__dup2
+      const uniqueKey = `${sane}__dup${seen}`; // ej: sprint__dup1, sprint__dup2...
       uniques.push({ uniqueKey, base: sane, original: h, occ: seen });
       counts.set(sane, seen + 1);
     }
@@ -48,15 +54,22 @@ function makeUniqueHeaders(rawHeaders) {
   return uniques;
 }
 
-// Candidatos de nombre existentes en BD para una ocurrencia (>0)
-function candidateDbNames(base, occ) {
+// Para 'sprint', mapeamos explícito hasta 7 ocurrencias -> sprint..sprint6
+function candidateDbNamesForSprint(occ) {
+  const explicit = ['sprint','sprint1','sprint2','sprint3','sprint4','sprint5','sprint6'];
+  // occ: 0..6 (1ª..7ª). Si viene más de 7, ya no hay slot -> se ignora.
+  return occ < explicit.length ? [explicit[occ]] : [];
+}
+
+// Para otras columnas duplicadas, probamos variaciones comunes
+function candidateDbNamesGeneric(base, occ) {
   if (occ === 0) return [base];
-  // probamos varios estilos por si la tabla usa "1-based" o "_1" o ambos
+  const n = occ; // 1=segunda, 2=tercera...
   return [
-    `${base}${occ}`,       // sprint1 (occ=1)
-    `${base}_${occ}`,      // sprint_1
-    `${base}${occ + 1}`,   // sprint2 (fallback)
-    `${base}_${occ + 1}`,  // sprint_2
+    `${base}${n}`,     // base1
+    `${base}_${n}`,    // base_1
+    `${base}${n+1}`,   // base2 (fallback por si DB es 1-based)
+    `${base}_${n+1}`,  // base_2
   ];
 }
 
@@ -81,7 +94,7 @@ export default async function handler(req, res) {
     const text = buf.toString('utf8');
     const delimiter = sniffDelimiter(text);
 
-    // 3) obtener cabeceras crudas SIN columns:true para no perder duplicados
+    // 3) cabeceras crudas (no perder duplicados)
     const headerRow = parseCsv(text, {
       delimiter,
       bom: true,
@@ -90,17 +103,17 @@ export default async function handler(req, res) {
       relax_quotes: true,
       relax_column_count: true,
       skip_empty_lines: false,
-    })[0]; // array con las cabeceras tal cual
+    })[0];
 
     if (!headerRow || !headerRow.length) {
       return res.status(400).json({ ok: false, error: 'No se pudo leer cabeceras del CSV' });
     }
 
-    // 4) generar claves únicas para duplicados
+    // 4) claves únicas
     const uniqueHeaders = makeUniqueHeaders(headerRow); // [{uniqueKey, base, original, occ}, ...]
     const columnsForParser = uniqueHeaders.map(x => x.uniqueKey);
 
-    // 5) parsear el CSV ahora sí con columns = uniqueKeys
+    // 5) parse con esas claves únicas
     const rows = parseCsv(text, {
       delimiter,
       bom: true,
@@ -124,7 +137,7 @@ export default async function handler(req, res) {
 
       const hasUploadedAt = tableCols.has('uploaded_at');
 
-      // 7) construir mapping CSV(uniqueKey)->DB(target), manejando duplicados (occ)
+      // 7) mapping CSV(uniqueKey)->DB(target)
       const mapping = [];         // [{uniqueKey, original, base, occ, targetDbCol}]
       const usedTargets = new Set();
       const ignored = [];
@@ -133,20 +146,21 @@ export default async function handler(req, res) {
         const { uniqueKey, base, original, occ } = h;
         let target = null;
 
-        const candidates = candidateDbNames(base, occ);
+        const candidates = (base === 'sprint')
+          ? candidateDbNamesForSprint(occ)
+          : candidateDbNamesGeneric(base, occ);
+
         for (const c of candidates) {
           if (tableCols.has(c) && !usedTargets.has(c)) {
             target = c;
             break;
           }
         }
-        // si no encontró candidato y es la ocurrencia 0, probamos el base tal cual (ya lo probamos arriba)
-        // si no hay target, se ignora
+
         if (target) {
           mapping.push({ uniqueKey, original, base, occ, targetDbCol: target });
           usedTargets.add(target);
         } else {
-          // también ignoramos columnas que no existen en DB
           ignored.push({ uniqueKey, original, base, occ, reason: 'no-matching-db-column' });
         }
       }
@@ -154,7 +168,7 @@ export default async function handler(req, res) {
       const insertCols = mapping.map(m => m.targetDbCol).filter(c => c !== 'id' && c !== 'uploaded_at');
       if (!insertCols.length) throw new Error('No hay columnas mapeadas CSV->DB para insertar.');
 
-      // 8) transformar filas según mapping (en orden de insertCols)
+      // 8) transformar filas según mapping (orden de insertCols)
       const values = rows.map((row) => {
         const arr = [];
         for (const col of insertCols) {
@@ -193,7 +207,7 @@ export default async function handler(req, res) {
           inserted: total,
           usedDbColumns: insertCols,
           ignoredCsvColumns: ignored,
-          headerMapping: mapping, // útil para debug (ver cómo se asignaron duplicados)
+          headerMapping: mapping,  // ver cómo se asignaron duplicados
           uploadedAt: hasUploadedAt ? 'NOW()' : null,
         };
       } catch (e) {
