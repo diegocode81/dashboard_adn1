@@ -3,68 +3,266 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Subir CSV de Jira → Cargar en Base</title>
+  <title>Subir CSV de Jira → Cargar en Base → ADN1</title>
+
+  <!-- Fuente limpia y moderna -->
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
   <style>
-    :root { color-scheme: light dark; }
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: #0b0b0c; color: #eaeaea; }
-    .wrap { max-width: 980px; margin: 0 auto; padding: 48px 20px; }
-    h1 { font-size: clamp(28px, 4vw, 48px); margin: 0 0 28px; line-height: 1.1; }
-    .card { background: #121214; border: 1px solid #222; border-radius: 14px; padding: 28px; }
-    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 18px 0; }
-    input[type="file"] { padding: 10px; background: #1b1b1d; border: 1px solid #333; border-radius: 10px; }
-    button { background: #3b82f6; color: #fff; border: 0; padding: 12px 18px; border-radius: 12px; font-weight: 600; cursor: pointer; }
-    button:disabled { opacity: .6; cursor: not-allowed; }
-    pre { background: #0e0e0f; border: 1px solid #222; border-radius: 12px; padding: 14px; overflow: auto; }
-    .muted { color: #9aa0a6; }
-    a { color: #93c5fd; text-decoration: none; }
+    :root{
+      --bg:#f6f8fb;
+      --card:#ffffff;
+      --text:#0f172a;
+      --muted:#475569;
+      --primary:#2563eb;
+      --primary-600:#1e40af;
+      --border:#e2e8f0;
+      --success:#16a34a;
+      --error:#dc2626;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji";
+      color:var(--text);
+      background:var(--bg);
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+    }
+
+    .wrap{max-width:1024px;margin:0 auto;padding:48px 20px 64px}
+
+    header{
+      margin:8px 0 24px;
+    }
+    .title{
+      font-size:clamp(28px,4vw,40px);
+      line-height:1.15;
+      font-weight:800;
+      letter-spacing:-0.02em;
+      margin:0 0 8px;
+      background:linear-gradient(90deg,#0f172a 0%, #2563eb 60%, #0ea5e9 100%);
+      -webkit-background-clip:text;
+      background-clip:text;
+      color:transparent;
+    }
+    .subtitle{
+      margin:0;
+      color:var(--muted);
+      font-size:15px;
+    }
+
+    .card{
+      background:var(--card);
+      border:1px solid var(--border);
+      box-shadow:0 10px 30px rgba(2,6,23,.06), 0 3px 12px rgba(2,6,23,.04);
+      border-radius:16px;
+      padding:28px;
+      margin-top:24px;
+    }
+
+    .hint{
+      color:var(--muted);
+      font-size:14px;
+      line-height:1.5;
+      margin-bottom:18px;
+    }
+    .hint code{
+      background:#eef2ff;
+      border:1px solid #e0e7ff;
+      border-radius:6px;
+      padding:2px 6px;
+      font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+      font-size:13px;
+      color:#3730a3;
+    }
+
+    .row{
+      display:flex;
+      gap:12px;
+      flex-wrap:wrap;
+      align-items:center;
+      margin-bottom:18px;
+    }
+
+    /* input de archivo “bonito” */
+    .file{
+      position:relative;
+      display:inline-flex;
+      align-items:center;
+    }
+    .file input[type=file]{
+      position:absolute;
+      inset:0;
+      opacity:0;
+      cursor:pointer;
+      width:100%;
+    }
+    .file .fake{
+      display:inline-flex;
+      align-items:center;
+      gap:10px;
+      padding:10px 14px;
+      border:1px solid var(--border);
+      border-radius:10px;
+      background:#fff;
+      color:#0f172a;
+      font-weight:500;
+      transition:.15s ease-in-out;
+      user-select:none;
+    }
+    .file .fake:hover{box-shadow:0 2px 8px rgba(2,6,23,.06)}
+    .file-name{
+      font-size:14px;
+      color:var(--muted);
+      min-width:120px;
+    }
+
+    .btn{
+      appearance:none;
+      border:0;
+      border-radius:10px;
+      padding:12px 18px;
+      background:var(--primary);
+      color:#fff;
+      font-weight:600;
+      letter-spacing:.2px;
+      cursor:pointer;
+      transition:.15s ease-in-out;
+      display:inline-flex;
+      align-items:center;
+      gap:10px;
+    }
+    .btn:hover{background:var(--primary-600)}
+    .btn[disabled]{opacity:.6;cursor:not-allowed}
+    .spinner{
+      width:16px;height:16px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;
+      animation:spin .8s linear infinite;
+    }
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    .result{
+      margin-top:14px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:#f8fafc;
+      padding:14px;
+      font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
+      font-size:13.5px;
+      color:#0f172a;
+      max-height:300px;
+      overflow:auto;
+      white-space:pre-wrap;
+      word-break:break-word;
+    }
+    .ok{color:var(--success)}
+    .bad{color:var(--error)}
+    footer{
+      margin-top:28px;
+      color:var(--muted);
+      font-size:12.5px;
+      text-align:center;
+    }
+    footer a{color:var(--primary);text-decoration:none}
+    footer a:hover{text-decoration:underline}
+
+    @media (max-width:640px){
+      .card{padding:20px}
+      .row{flex-direction:column;align-items:stretch}
+      .btn{width:100%;justify-content:center}
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>Subir CSV de Jira → Cargar en Base</h1>
-    <div class="card">
-      <p class="muted">
-        Formato: CSV exportado desde Jira (filtro <code>project = ADN1</code>).<br/>
+    <header>
+      <h1 class="title">Subir CSV de Jira → Cargar en Base</h1>
+      <p class="subtitle">
         Cada carga <strong>TRUNCA</strong> la tabla <code>raw_jira</code> y deja el snapshot más reciente.
       </p>
+    </header>
 
-      <form id="f" class="row">
-        <input type="file" id="file" name="file" accept=".csv" required />
-        <button type="submit" id="btn">Subir y cargar</button>
-      </form>
+    <section class="card">
+      <p class="hint">
+        Formato: CSV exportado desde Jira (filtro <code>project = ADN1</code>).  
+        Acepta archivos hasta ~10MB.
+      </p>
 
-      <pre id="out" class="muted">Listo para subir…</pre>
-    </div>
+      <div class="row">
+        <label class="file">
+          <input id="file" type="file" accept=".csv,text/csv" />
+          <span class="fake">📄 Seleccionar archivo</span>
+        </label>
+        <span id="fileName" class="file-name">Ningún archivo seleccionado</span>
+
+        <button id="submitBtn" class="btn" disabled>
+          <span class="btn-label">Subir y cargar</span>
+        </button>
+      </div>
+
+      <pre id="result" class="result" aria-live="polite">{ }</pre>
+    </section>
+
+    <footer>
+      Salud de servicio: <a href="/api/health" target="_blank" rel="noopener">/api/health</a>
+    </footer>
   </div>
 
   <script>
-    const f = document.getElementById('f');
-    const out = document.getElementById('out');
-    const btn = document.getElementById('btn');
+    const fileInput = document.getElementById('file');
+    const fileName  = document.getElementById('fileName');
+    const submitBtn = document.getElementById('submitBtn');
+    const result    = document.getElementById('result');
 
-    f.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      out.textContent = 'Subiendo y procesando…';
-      btn.disabled = true;
+    fileInput.addEventListener('change', () => {
+      const f = fileInput.files?.[0];
+      fileName.textContent = f ? f.name : 'Ningún archivo seleccionado';
+      submitBtn.disabled = !f;
+      result.textContent = '{ }';
+      result.classList.remove('ok','bad');
+    });
+
+    async function upload() {
+      const f = fileInput.files?.[0];
+      if (!f) return;
+
+      // UI estado "cargando"
+      submitBtn.disabled = true;
+      const original = submitBtn.querySelector('.btn-label').textContent;
+      submitBtn.querySelector('.btn-label').textContent = 'Cargando…';
+      const sp = document.createElement('span'); sp.className = 'spinner';
+      submitBtn.prepend(sp);
 
       try {
-        const fd = new FormData(f);
-        const resp = await fetch('/api/upload', { method: 'POST', body: fd });
+        const fd = new FormData();
+        fd.append('file', f);
 
-        const ct = resp.headers.get('content-type') || '';
-        if (!ct.includes('application/json')) {
-          const text = await resp.text();
-          out.textContent = `Error: la API no devolvió JSON.\n\nStatus: ${resp.status}\n\nRespuesta:\n${text}`;
-          return;
+        const res = await fetch('/api/upload', { method: 'POST', body: fd });
+        const txt = await res.text();
+
+        let data;
+        try { data = JSON.parse(txt); }
+        catch { throw new Error('Respuesta no es JSON: ' + txt.slice(0, 200)); }
+
+        if (!res.ok || !data.ok) {
+          result.classList.remove('ok'); result.classList.add('bad');
+        } else {
+          result.classList.remove('bad'); result.classList.add('ok');
         }
-        const data = await resp.json();
-        out.textContent = JSON.stringify(data, null, 2);
+        result.textContent = JSON.stringify(data, null, 2);
       } catch (err) {
-        out.textContent = `Error de red/JS: ${err?.message || err}`;
+        result.classList.remove('ok'); result.classList.add('bad');
+        result.textContent = JSON.stringify({ ok:false, error: String(err) }, null, 2);
       } finally {
-        btn.disabled = false;
+        submitBtn.disabled = false;
+        submitBtn.querySelector('.btn-label').textContent = original;
+        sp.remove();
       }
-    });
+    }
+
+    submitBtn.addEventListener('click', upload);
   </script>
 </body>
 </html>
