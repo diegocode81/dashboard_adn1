@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "functions": {
+    "api/**/*.js": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 300
+    }
+  },
+  "routes": [
+    { "src": "/api/health", "dest": "/api/health.js" },
+    { "src": "/api/upload", "dest": "/api/upload.js", "methods": ["POST"] },
+    { "src": "/api/kpi/rebuild", "dest": "/api/kpi/rebuild.js" },
+    { "src": "/(.*)", "dest": "/index.html" }
+  ]
+}

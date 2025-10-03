@@ -1,174 +1,104 @@
-// api/upload.js
-module.exports = async (req, res) => {
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+// /api/upload.js
+import Busboy from 'busboy';
+import { getPool } from './_db.js';
+import { parseCsvBuffer, collectColumns } from './_csv.js';
+import { rebuildAllKpis } from './_kpi.js';
+
+export const config = { api: { bodyParser: false } };
+
+function readFileFromRequest(req) {
+  return new Promise((resolve, reject) => {
+    const bb = Busboy({ headers: req.headers });
+    let fileBuffer = Buffer.alloc(0);
+
+    bb.on('file', (_name, file) => {
+      file.on('data', (d) => (fileBuffer = Buffer.concat([fileBuffer, d])));
+    });
+    bb.on('error', reject);
+    bb.on('finish', () => resolve(fileBuffer));
+
+    req.pipe(bb);
+  });
+}
+
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST');
+    return res.status(405).json({ ok: false, error: 'Method Not Allowed' });
+  }
 
   try {
-    // Cargar dependencias dentro del handler (para poder capturar errores)
-    let Busboy, Pool, parseSync;
-    try {
-      Busboy = require('busboy');
-    } catch (e) {
-      res.statusCode = 500;
-      return res.end(JSON.stringify({ ok: false, error: 'Falta dependencia: busboy', detail: String(e) }));
-    }
-    try {
-      ({ Pool } = require('pg'));
-    } catch (e) {
-      res.statusCode = 500;
-      return res.end(JSON.stringify({ ok: false, error: 'Falta dependencia: pg', detail: String(e) }));
-    }
-    try {
-      ({ parse: parseSync } = require('csv-parse/sync'));
-    } catch (e) {
-      res.statusCode = 500;
-      return res.end(JSON.stringify({ ok: false, error: 'Falta dependencia: csv-parse', detail: String(e) }));
-    }
+    const buf = await readFileFromRequest(req);
+    if (!buf?.length) return res.status(400).json({ ok: false, error: 'Archivo vacío' });
 
-    // Solo POST con multipart/form-data
-    if (req.method !== 'POST') {
-      res.statusCode = 405;
-      return res.end(JSON.stringify({ ok: false, error: 'Method not allowed. Usa POST.' }));
-    }
-    const ct = req.headers['content-type'] || '';
-    if (!ct.toLowerCase().includes('multipart/form-data')) {
-      res.statusCode = 400;
-      return res.end(JSON.stringify({ ok: false, error: 'Content-Type debe ser multipart/form-data' }));
-    }
+    const rows = parseCsvBuffer(buf);
+    if (!rows.length) return res.status(400).json({ ok: false, error: 'CSV sin filas' });
 
-    // Leer archivo CSV vía Busboy
-    const csvBuffer = await new Promise((resolve, reject) => {
-      let fileFound = false;
-      let buf = Buffer.alloc(0);
-      const bb = Busboy({ headers: req.headers });
-
-      bb.on('file', (fieldname, file) => {
-        if (fieldname === 'file') fileFound = true;
-        file.on('data', d => { buf = Buffer.concat([buf, d]); });
-        file.on('limit', () => reject(new Error('Archivo demasiado grande')));
-      });
-      bb.on('error', reject);
-      bb.on('finish', () => {
-        if (!fileFound) return reject(new Error('No se encontró archivo (campo name="file")'));
-        resolve(buf);
-      });
-
-      req.pipe(bb);
-    });
-
-    // Parsear CSV
-    const csvText = csvBuffer.toString('utf8');
-    const records = parseSync(csvText, {
-      columns: true,
-      skip_empty_lines: true,
-      bom: true,
-      trim: true,
-    });
-    if (!records.length) {
-      res.statusCode = 400;
-      return res.end(JSON.stringify({ ok: false, error: 'CSV vacío o sin registros.' }));
-    }
-
-    // Mapeo de cabeceras (ajusta si cambian en tu CSV)
-    const CSV_TO_COL = {
-      'Tipo de Incidencia': 'tipo_de_incidente',
-      'Clave principal': 'clave_principal',
-      'ID de la incidencia': 'id_de_la_inciencia',
-      'Resumen': 'resumen',
-      'Principal': 'principal',
-      'Clave de incidencia': 'clave_de_inciencia',
-      'Parent summary': 'parent_summary',
-      'Etiquetas': 'etiquetas',
-      'Sprint': 'sprint',
-      'Estado': 'estado'
-    };
-    const INSERT_COLS = Object.values(CSV_TO_COL);
-    const pick = (row, name) => {
-      const needle = name.trim().toLowerCase();
-      for (const k of Object.keys(row)) {
-        if (k && k.trim().toLowerCase() === needle) return row[k];
-      }
-      return null;
-    };
-
-    const rows = records.map(r => ([
-      pick(r, 'Tipo de Incidencia'),
-      pick(r, 'Clave principal'),
-      pick(r, 'ID de la incidencia'),
-      pick(r, 'Resumen'),
-      pick(r, 'Principal'),
-      pick(r, 'Clave de incidencia'),
-      pick(r, 'Parent summary'),
-      pick(r, 'Etiquetas'),
-      pick(r, 'Sprint'),
-      pick(r, 'Estado'),
-    ]));
-
-    // Conexión a Postgres (DATABASE_URL o las PG*)
-    const getPgConfig = () => {
-      if (process.env.DATABASE_URL) {
-        return { connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } };
-      }
-      const { PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE, PGSSLMODE } = process.env;
-      return {
-        host: PGHOST,
-        port: PGPORT ? Number(PGPORT) : 5432,
-        user: PGUSER,
-        password: PGPASSWORD,
-        database: PGDATABASE,
-        ssl: PGSSLMODE === 'require' ? { rejectUnauthorized: false } : false,
-      };
-    };
-
-    const pool = new Pool(getPgConfig());
+    const cols = collectColumns(rows);
+    const pool = getPool();
     const client = await pool.connect();
 
+    let inserted = 0;
+
     try {
+      await client.query('BEGIN');
+
+      // Crea tabla RAW si no existe
       await client.query(`
-        CREATE TABLE IF NOT EXISTS raw_jira (
-          id bigserial PRIMARY KEY,
-          tipo_de_incidente   text,
-          clave_principal     text,
-          id_de_la_inciencia  text,
-          resumen             text,
-          principal           text,
-          clave_de_inciencia  text,
-          parent_summary      text,
-          etiquetas           text,
-          sprint              text,
-          estado              text,
-          uploaded_at         timestamptz DEFAULT now()
-        );
+        CREATE TABLE IF NOT EXISTS public.raw_jira (
+          _loaded_at TIMESTAMPTZ DEFAULT now()
+        )
       `);
 
-      await client.query('TRUNCATE TABLE raw_jira;');
-
-      const CHUNK = 1000;
-      let inserted = 0;
-      for (let i = 0; i < rows.length; i += CHUNK) {
-        const chunk = rows.slice(i, i + CHUNK);
-        const params = [];
-        const values = chunk.map((r, idx) => {
-          params.push(...r);
-          const base = idx * INSERT_COLS.length;
-          const ph = r.map((_, j) => `$${base + j + 1}`).join(', ');
-          return `(${ph})`;
-        }).join(', ');
-        await client.query(
-          `INSERT INTO raw_jira (${INSERT_COLS.join(', ')}) VALUES ${values};`,
-          params
-        );
-        inserted += chunk.length;
+      // Asegura columnas del CSV como TEXT
+      for (const c of cols) {
+        await client.query(`ALTER TABLE public.raw_jira ADD COLUMN IF NOT EXISTS "${c}" TEXT`);
       }
 
-      return res.end(JSON.stringify({ ok: true, rows: inserted }));
+      // Snapshot: truncar antes de insertar
+      await client.query(`TRUNCATE public.raw_jira`);
+
+      // Inserción por lotes
+      const batchSize = 500;
+      for (let i = 0; i < rows.length; i += batchSize) {
+        const slice = rows.slice(i, i + batchSize);
+        const values = [];
+        const params = [];
+        let p = 1;
+
+        for (const r of slice) {
+          const rowVals = cols.map(c => r[c] ?? null);
+          params.push(...rowVals);
+          values.push(`(${cols.map(() => `$${p++}`).join(',')})`);
+        }
+
+        const sql = `
+          INSERT INTO public.raw_jira (${cols.map(c => `"${c}"`).join(',')})
+          VALUES ${values.join(',')}
+        `;
+        await client.query(sql, params);
+        inserted += slice.length;
+      }
+
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
     } finally {
       client.release();
-      await pool.end();
     }
+
+    // ✅ Una vez confirmada la carga RAW, reconstruimos KPIs
+    const executed = await rebuildAllKpis();
+
+    return res.status(200).json({
+      ok: true,
+      rows: inserted,
+      columns: cols.length,
+      kpis_executed: executed
+    });
   } catch (err) {
-    // Cualquier error no previsto
-    console.error('Upload error:', err);
-    res.statusCode = 500;
-    return res.end(JSON.stringify({ ok: false, error: err?.message || String(err) }));
+    console.error(err);
+    return res.status(500).json({ ok: false, error: String(err?.message || err) });
   }
-};
+}
