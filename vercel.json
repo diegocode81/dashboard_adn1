@@ -1,13 +1,14 @@
 {
   "version": 2,
   "functions": {
-    "api/*.js": {
+    "api/**/*.js": {
       "runtime": "nodejs20.x",
-      "maxDuration": 60,
-      "memory": 1024
+      "maxDuration": 300
     }
   },
   "routes": [
-    { "src": "^/$", "dest": "/index.html" }
+    { "src": "/api/health", "dest": "/api/health.js" },
+    { "src": "/api/upload", "methods": ["POST"], "dest": "/api/upload.js" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }

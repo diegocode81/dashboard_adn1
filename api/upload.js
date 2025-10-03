@@ -1,155 +1,94 @@
 // api/upload.js
-const Busboy = require('busboy');
-const { parse } = require('csv-parse/sync');
-const { Client } = require('pg');
+import { Client } from 'pg';
+import { parse } from 'csv-parse/sync';
 
-function parseCsv(buffer) {
-  const text = buffer.toString('utf8');
-  const records = parse(text, {
-    columns: true,
-    skip_empty_lines: true
+export const config = {
+  api: {
+    bodyParser: false, // para leer el archivo tal cual (multipart)
+  },
+};
+
+function readMultipart(req) {
+  // Vercel/Node sin librerías: aceptamos CSV crudo (text/csv).
+  // Si subes con <input type=file>, usa fetch con enctype "text/csv".
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.setEncoding('utf8');
+    req.on('data', chunk => (data += chunk));
+    req.on('end', () => resolve(data));
+    req.on('error', reject);
   });
-  return { headers: Object.keys(records[0] || {}), rows: records };
 }
 
-function mapColumns(cols) {
-  // Normaliza nombres: snake_case y mínimas transformaciones
-  return cols.map(c =>
-    c
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, '_')
-      .replace(/[^a-z0-9_]/g, '')
-  );
-}
-
-function guessTypes(rows, headers) {
-  // Heurística simple: si todas las filas son números -> numeric
-  const types = {};
-  headers.forEach((h) => {
-    let allNumeric = true;
-    for (const r of rows) {
-      const v = (r[h] ?? '').toString().trim();
-      if (v === '' || v.toLowerCase() === 'null') continue;
-      if (isNaN(Number(v))) { allNumeric = false; break; }
-    }
-    types[h] = allNumeric ? 'numeric' : 'text';
-  });
-  return types;
-}
-
-async function upsertTable(client, table, headers, rows) {
-  // Normaliza columnas
-  const norm = mapColumns(headers);
-  const types = guessTypes(rows, headers);
-
-  // Crea tabla si no existe
-  const colsDDL = norm.map((n, i) => `"${n}" ${types[headers[i]]}`).join(', ');
-  await client.query(`
-    CREATE TABLE IF NOT EXISTS "${table}" (
-      id bigserial PRIMARY KEY,
-      ${colsDDL}
-    )
-  `);
-
-  // Trunca
-  await client.query(`TRUNCATE TABLE "${table}"`);
-
-  // Inserta por lotes
-  const batchSize = 1000;
-  let inserted = 0;
-
-  for (let i = 0; i < rows.length; i += batchSize) {
-    const slice = rows.slice(i, i + batchSize);
-    const values = [];
-    const placeholders = [];
-
-    slice.forEach((r, idx) => {
-      const rowValues = norm.map((n, j) => r[headers[j]] ?? null);
-      values.push(...rowValues);
-      const base = idx * norm.length;
-      const ph = norm.map((_, k) => `$${base + k + 1}`);
-      placeholders.push(`(${ph.join(',')})`);
-    });
-
-    const sql = `
-      INSERT INTO "${table}" (${norm.map(n => `"${n}"`).join(', ')})
-      VALUES ${placeholders.join(', ')}
-    `;
-    await client.query(sql, values);
-    inserted += slice.length;
-  }
-
-  return inserted;
-}
-
-module.exports = async (req, res) => {
-  const start = Date.now();
-  if (req.method !== 'POST') {
-    return res.status(405).json({ ok: false, error: 'Method not allowed' });
-  }
-
+export default async function handler(req, res) {
   try {
-    const DATABASE_URL = process.env.DATABASE_URL;
-    const TABLE_NAME = process.env.TABLE_NAME || 'jira_raw';
-
-    if (!DATABASE_URL) {
-      return res.status(500).json({ ok: false, error: 'Missing env DATABASE_URL' });
+    if (req.method !== 'POST') {
+      res.status(405).json({ ok: false, error: 'Only POST is allowed' });
+      return;
     }
 
-    // ---- parse multipart con Busboy ----
-    const buf = await new Promise((resolve, reject) => {
-      const bb = Busboy({ headers: req.headers });
-      let chunks = [];
-      let fileFound = false;
+    const csvText = await readMultipart(req);
 
-      bb.on('file', (_name, file) => {
-        fileFound = true;
-        file.on('data', (d) => chunks.push(d));
-        file.on('end', () => {});
-      });
-
-      bb.on('error', reject);
-      bb.on('finish', () => {
-        if (!fileFound) return reject(new Error('No file field found'));
-        resolve(Buffer.concat(chunks));
-      });
-
-      req.pipe(bb);
-    });
-
-    const { headers, rows } = parseCsv(buf);
-    if (!rows.length) {
-      return res.status(400).json({ ok: false, error: 'CSV without rows' });
+    if (!csvText || !csvText.trim()) {
+      res.status(400).json({ ok: false, error: 'CSV vacío o no recibido' });
+      return;
     }
 
-    const client = new Client({
-      connectionString: DATABASE_URL,
-      ssl: { rejectUnauthorized: false }
+    const records = parse(csvText, {
+      columns: true,
+      skip_empty_lines: true,
     });
+
+    // Conexión a Neon / Postgres desde env vars
+    const con = {
+      host: process.env.PGHOST,
+      port: process.env.PGPORT ? Number(process.env.PGPORT) : 5432,
+      database: process.env.PGDATABASE,
+      user: process.env.PGUSER,
+      password: process.env.PGPASSWORD,
+      ssl: process.env.PGSSLMODE ? { rejectUnauthorized: false } : false,
+    };
+
+    const client = new Client(con);
     await client.connect();
 
-    let inserted = 0;
-    try {
-      inserted = await upsertTable(client, TABLE_NAME, headers, rows);
-    } finally {
-      await client.end();
+    // TRUNCATE + INSERT masivo
+    await client.query('BEGIN');
+    await client.query('TRUNCATE TABLE raw_jira');
+
+    // Ajusta estos nombres de columnas a tu tabla raw_jira
+    const cols = [
+      'tipo_de_incidente', 'clave_principal', 'id_de_la_inciencia', 'resumen',
+      'principal', 'clave_de_inciencia', 'parent_summary', 'etiquetas',
+      'sprint', 'estado'
+    ];
+
+    const insertText = `
+      INSERT INTO raw_jira (${cols.join(', ')})
+      VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')})
+    `;
+
+    for (const r of records) {
+      const values = [
+        r['Tipo de Incidenc'],           // renómbralos según los headers del CSV
+        r['Clave principal'],
+        r['ID de la incidenci'],
+        r['Resumen'],
+        r['Principal'],
+        r['Clave de incidenci'],
+        r['Parent summary'],
+        r['Etiquetas'],
+        r['Sprint'],
+        r['Estado'],
+      ];
+      await client.query(insertText, values);
     }
 
-    return res.status(200).json({
-      ok: true,
-      table: TABLE_NAME,
-      inserted,
-      elapsed_ms: Date.now() - start
-    });
+    await client.query('COMMIT');
+    await client.end();
 
+    res.status(200).json({ ok: true, rows: records.length });
   } catch (err) {
-    // Log y respuesta JSON (evitamos HTML)
-    console.error('[upload] error:', err);
-    return res.status(500).json({
-      ok: false,
-      error: err.message,
-      stack: err.stack
-    });
+    res.status(500).json({ ok: false, error: err.message });
   }
-};
+}
