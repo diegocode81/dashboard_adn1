@@ -1,17 +1,22 @@
 // api/upload.js
 // Carga CSV de Jira -> TRUNCATE + INSERT en public.raw_jira
-// - SOLO inserta columnas que EXISTEN en la DB (whitelist).
-// - Manejo de cabeceras duplicadas sin perder valores (p. ej., "sprint" x N).
-// - Duplicados de "sprint": mapea hasta 7 ocurrencias -> sprint, sprint1..sprint6.
-// - uploaded_at = NOW() (si existe en la tabla).
+// - Inserta SOLO columnas que EXISTEN en la DB (whitelist).
+// - Soporta cabeceras duplicadas sin perder valores (p. ej., "Sprint" x N).
+// - Duplicados "Sprint": mapea hasta 7 -> sprint, sprint1..sprint6.
+// - uploaded_at = NOW() si la columna existe.
+// - Lotes dinámicos para no exceder el límite de parámetros en Postgres.
 
 import { withClient } from './_db.js';
 import { parse as parseCsv } from 'csv-parse/sync';
 import formidable from 'formidable';
 import fs from 'fs/promises';
 
-export const config = { api: { bodyParser: false } };
+export const config = {
+  api: { bodyParser: false, sizeLimit: '25mb' },
+  runtime: 'nodejs',
+};
 
+// --- Utilidades ---
 function sanitize(name) {
   return name
     .toString()
@@ -35,7 +40,7 @@ function toDb(v) {
   return v;
 }
 
-// Genera claves únicas para cabeceras duplicadas (no perdemos valores)
+// Genera claves únicas para cabeceras duplicadas
 function makeUniqueHeaders(rawHeaders) {
   const counts = new Map();
   const uniques = [];
@@ -46,7 +51,7 @@ function makeUniqueHeaders(rawHeaders) {
       uniques.push({ uniqueKey: sane, base: sane, original: h, occ: 0 });
       counts.set(sane, 1);
     } else {
-      const uniqueKey = `${sane}__dup${seen}`; // ej: sprint__dup1, sprint__dup2...
+      const uniqueKey = `${sane}__dup${seen}`; // ej: sprint__dup1
       uniques.push({ uniqueKey, base: sane, original: h, occ: seen });
       counts.set(sane, seen + 1);
     }
@@ -54,24 +59,31 @@ function makeUniqueHeaders(rawHeaders) {
   return uniques;
 }
 
-// Para 'sprint', mapeamos explícito hasta 7 ocurrencias -> sprint..sprint6
+// Para 'sprint' mapeamos explícito hasta 7 slots
 function candidateDbNamesForSprint(occ) {
   const explicit = ['sprint','sprint1','sprint2','sprint3','sprint4','sprint5','sprint6'];
-  // occ: 0..6 (1ª..7ª). Si viene más de 7, ya no hay slot -> se ignora.
   return occ < explicit.length ? [explicit[occ]] : [];
 }
 
-// Para otras columnas duplicadas, probamos variaciones comunes
+// Para otras duplicadas, variaciones comunes
 function candidateDbNamesGeneric(base, occ) {
   if (occ === 0) return [base];
   const n = occ; // 1=segunda, 2=tercera...
   return [
     `${base}${n}`,     // base1
     `${base}_${n}`,    // base_1
-    `${base}${n+1}`,   // base2 (fallback por si DB es 1-based)
+    `${base}${n+1}`,   // base2 (por si DB es 1-based)
     `${base}_${n+1}`,  // base_2
   ];
 }
+
+// Equivalencias CSV(normalizado) -> columna en DB (tolerante a typos/variantes)
+const HARDCODED = {
+  // Incidencia(s)
+  tipo_de_incidencia:  'tipo_de_incidente',
+  id_de_la_incidencia: 'id_de_la_inciencia',
+  clave_de_incidencia: 'clave_de_inciencia',
+};
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -86,7 +98,9 @@ export default async function handler(req, res) {
       form.parse(req, (err, fields, files) => (err ? reject(err) : resolve({ fields, files })));
     });
     const fvals = Object.values(files || {});
-    if (fvals.length === 0) return res.status(400).json({ ok: false, error: 'Archivo no encontrado (key "file")' });
+    if (fvals.length === 0) {
+      return res.status(400).json({ ok: false, error: 'Archivo no encontrado (key "file")' });
+    }
     const up = Array.isArray(fvals[0]) ? fvals[0][0] : fvals[0];
 
     // 2) leer archivo
@@ -94,7 +108,7 @@ export default async function handler(req, res) {
     const text = buf.toString('utf8');
     const delimiter = sniffDelimiter(text);
 
-    // 3) cabeceras crudas (no perder duplicados)
+    // 3) cabeceras crudas
     const headerRow = parseCsv(text, {
       delimiter,
       bom: true,
@@ -109,11 +123,11 @@ export default async function handler(req, res) {
       return res.status(400).json({ ok: false, error: 'No se pudo leer cabeceras del CSV' });
     }
 
-    // 4) claves únicas
+    // 4) claves únicas para parser
     const uniqueHeaders = makeUniqueHeaders(headerRow); // [{uniqueKey, base, original, occ}, ...]
     const columnsForParser = uniqueHeaders.map(x => x.uniqueKey);
 
-    // 5) parse con esas claves únicas
+    // 5) parse filas con las claves únicas
     const rows = parseCsv(text, {
       delimiter,
       bom: true,
@@ -148,7 +162,10 @@ export default async function handler(req, res) {
 
         const candidates = (base === 'sprint')
           ? candidateDbNamesForSprint(occ)
-          : candidateDbNamesGeneric(base, occ);
+          : [
+              ...(HARDCODED[base] ? [HARDCODED[base]] : []),
+              ...candidateDbNamesGeneric(base, occ),
+            ];
 
         for (const c of candidates) {
           if (tableCols.has(c) && !usedTargets.has(c)) {
@@ -165,39 +182,72 @@ export default async function handler(req, res) {
         }
       }
 
-      const insertCols = mapping.map(m => m.targetDbCol).filter(c => c !== 'id' && c !== 'uploaded_at');
-      if (!insertCols.length) throw new Error('No hay columnas mapeadas CSV->DB para insertar.');
+      const insertCols = mapping
+        .map(m => m.targetDbCol)
+        .filter(c => c !== 'id' && c !== 'uploaded_at');
+
+      if (!insertCols.length) {
+        throw new Error('No hay columnas mapeadas CSV->DB para insertar.');
+      }
 
       // 8) transformar filas según mapping (orden de insertCols)
       const values = rows.map((row) => {
-        const arr = [];
-        for (const col of insertCols) {
+        const arr = new Array(insertCols.length);
+        for (let i = 0; i < insertCols.length; i++) {
+          const col = insertCols[i];
           const m = mapping.find(x => x.targetDbCol === col);
-          arr.push(toDb(row[m.uniqueKey]));
+          if (!m) throw new Error(`Mapping inconsistente para columna ${col}`);
+          arr[i] = toDb(row[m.uniqueKey]);
         }
         return arr;
       });
 
-      // 9) TRUNCATE + INSERT
+      // 9) TRUNCATE + INSERT por lotes seguros
       await client.query('BEGIN');
       try {
         await client.query('TRUNCATE TABLE public.raw_jira RESTART IDENTITY');
 
         const effectiveInsertCols = hasUploadedAt ? [...insertCols, 'uploaded_at'] : [...insertCols];
         const baseLen = insertCols.length;
+        const extraCols = hasUploadedAt ? 1 : 0;
 
-        const batchSize = 1000;
+        // Límite de parámetros de Postgres ~65535. Reservamos margen.
+        const PG_MAX_PARAMS = 60000;
+        const maxRowsByParams = Math.max(1, Math.floor(PG_MAX_PARAMS / (baseLen + extraCols)));
+        // Tope adicional para tamaño de SQL y estabilidad en serverless.
+        const batchSize = Math.min(500, maxRowsByParams);
+
         let total = 0;
         for (let i = 0; i < values.length; i += batchSize) {
           const chunk = values.slice(i, i + batchSize);
-          const placeholders = chunk
-            .map((_, r) => {
-              const idxs = Array.from({ length: baseLen }, (_, c) => `$${r * baseLen + c + 1}`).join(',');
-              return hasUploadedAt ? `(${idxs}, NOW())` : `(${idxs})`;
-            })
-            .join(',');
-          const flatParams = chunk.flat();
-          const sql = `INSERT INTO public.raw_jira(${effectiveInsertCols.join(',')}) VALUES ${placeholders}`;
+
+          // Placeholders con índices locales al chunk
+          const placeholders = [];
+          let pIndex = 1;
+          for (let r = 0; r < chunk.length; r++) {
+            const ids = [];
+            for (let c = 0; c < baseLen; c++) {
+              ids.push(`$${pIndex++}`);
+            }
+            const tuple = hasUploadedAt ? `(${ids.join(',')}, NOW())` : `(${ids.join(',')})`;
+            placeholders.push(tuple);
+          }
+
+          // Empaquetado robusto de parámetros (sin usar Array.flat)
+          const expected = chunk.length * baseLen;
+          const flatParams = new Array(expected);
+          let k = 0;
+          for (let r = 0; r < chunk.length; r++) {
+            const rowArr = chunk[r];
+            for (let c = 0; c < baseLen; c++) {
+              flatParams[k++] = rowArr[c];
+            }
+          }
+          if (flatParams.length !== expected) {
+            throw new Error(`Param packing mismatch: got ${flatParams.length} vs expected ${expected}`);
+          }
+
+          const sql = `INSERT INTO public.raw_jira(${effectiveInsertCols.join(',')}) VALUES ${placeholders.join(',')}`;
           await client.query(sql, flatParams);
           total += chunk.length;
         }
@@ -207,7 +257,7 @@ export default async function handler(req, res) {
           inserted: total,
           usedDbColumns: insertCols,
           ignoredCsvColumns: ignored,
-          headerMapping: mapping,  // ver cómo se asignaron duplicados
+          headerMapping: mapping,
           uploadedAt: hasUploadedAt ? 'NOW()' : null,
         };
       } catch (e) {
