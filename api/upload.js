@@ -2,7 +2,7 @@
 // Carga CSV de Jira -> TRUNCATE + INSERT en public.raw_jira
 // - Inserta SOLO columnas que EXISTEN en la DB (whitelist).
 // - Soporta cabeceras duplicadas sin perder valores (p. ej., "Sprint" x N).
-// - Duplicados "Sprint": mapea hasta 7 -> sprint, sprint1..sprint6.
+// - Duplicados "Sprint": mapea hasta 11 -> sprint, sprint1..sprint10.
 // - uploaded_at = NOW() si la columna existe.
 // - Lotes dinámicos para no exceder el límite de parámetros en Postgres.
 
@@ -59,9 +59,21 @@ function makeUniqueHeaders(rawHeaders) {
   return uniques;
 }
 
-// Para 'sprint' mapeamos explícito hasta 7 slots
+// Para 'sprint' mapeamos explícito hasta 11 slots (sprint .. sprint10)
 function candidateDbNamesForSprint(occ) {
-  const explicit = ['sprint','sprint1','sprint2','sprint3','sprint4','sprint5','sprint6'];
+  const explicit = [
+    'sprint',  // occ = 0
+    'sprint1', // 1
+    'sprint2', // 2
+    'sprint3', // 3
+    'sprint4', // 4
+    'sprint5', // 5
+    'sprint6', // 6
+    'sprint7', // 7
+    'sprint8', // 8
+    'sprint9', // 9
+    'sprint10' // 10
+  ];
   return occ < explicit.length ? [explicit[occ]] : [];
 }
 
@@ -82,7 +94,32 @@ const HARDCODED = {
   // Incidencia(s)
   tipo_de_incidencia:  'tipo_de_incidente',
   id_de_la_incidencia: 'id_de_la_inciencia',
-  clave_de_incidencia: 'clave_de_inciencia',
+  clave_de_incidencia: 'clave_de_incincia',
+
+  // Fechas de CREACIÓN/INICIO -> fecha_creacion
+  fecha_de_creacion:   'fecha_creacion',
+  fecha_creado:        'fecha_creacion',
+  creado:              'fecha_creacion',
+  created:             'fecha_creacion',
+  created_date:        'fecha_creacion',
+  fecha_reporte:       'fecha_creacion',
+  fecha_de_reporte:    'fecha_creacion',
+  fecha_inicio_real:   'fecha_creacion',
+  fecha_de_inicio:     'fecha_creacion',
+  start_date:          'fecha_creacion',
+
+  // Fechas de CIERRE/RESOLUCIÓN -> fecha_cierre
+  fecha_de_resolucion: 'fecha_cierre',
+  fecha_resolucion:    'fecha_cierre',
+  fecha_cierre_real:   'fecha_cierre',
+  resolved:            'fecha_cierre',
+  resolution_date:     'fecha_cierre',
+  fecha_de_cierre:     'fecha_cierre',
+  close_date:          'fecha_cierre',
+
+  // Story points (por si vienen con otro nombre)
+  story_points_estimate: 'story_points',
+  storypoint:            'story_points'
 };
 
 export default async function handler(req, res) {
