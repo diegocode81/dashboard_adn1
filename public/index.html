@@ -239,16 +239,6 @@
       result.classList.remove('ok','bad');
     });
 
-    function safeBlobPath(fileName) {
-      const cleanName = fileName
-        .normalize('NFKD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-zA-Z0-9._-]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        || 'jira.csv';
-      return `jira-imports/${Date.now()}-${cleanName}`;
-    }
-
     async function upload() {
       const f = fileInput.files?.[0];
       if (!f) return;
@@ -273,11 +263,9 @@
           message: 'Subiendo CSV directamente a Vercel Blob...',
         }, null, 2);
 
-        const blob = await uploadToBlob(safeBlobPath(f.name), f, {
+        const blob = await uploadToBlob(f.name, f, {
           access: 'public',
           handleUploadUrl: '/api/blob-upload',
-          contentType: f.type || 'text/csv',
-          multipart: true,
         });
 
         currentStep = 'processing_blob';

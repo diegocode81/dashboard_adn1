@@ -5,10 +5,19 @@ export const config = {
   runtime: 'nodejs',
 };
 
-function parseBody(req) {
+async function readRawBody(req) {
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+async function parseBody(req) {
   if (req.body && typeof req.body === 'object') return req.body;
   if (typeof req.body === 'string') return JSON.parse(req.body);
-  return req.body;
+  const rawBody = await readRawBody(req);
+  return rawBody ? JSON.parse(rawBody) : undefined;
 }
 
 export default async function handler(req, res) {
@@ -28,7 +37,7 @@ export default async function handler(req, res) {
     const jsonResponse = await handleUpload({
       token: process.env.BLOB_READ_WRITE_TOKEN,
       request: req,
-      body: parseBody(req),
+      body: await parseBody(req),
       onBeforeGenerateToken: async (pathname) => {
         if (!/\.csv$/i.test(pathname)) {
           throw new Error('Solo se permiten archivos CSV.');
