@@ -239,6 +239,33 @@
       result.classList.remove('ok','bad');
     });
 
+    async function assertBlobTokenEndpoint(fileName) {
+      const res = await fetch('/api/blob-upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'blob.generate-client-token',
+          payload: {
+            pathname: fileName,
+            clientPayload: null,
+            multipart: false,
+          },
+        }),
+      });
+
+      if (res.ok) return;
+
+      let data = null;
+      try { data = await res.json(); } catch {}
+
+      if (data?.error) {
+        const detail = data.step ? `${data.step}: ${data.error}` : data.error;
+        throw new Error(detail);
+      }
+
+      throw new Error(`No se pudo obtener el token de subida a Blob. HTTP ${res.status}`);
+    }
+
     async function upload() {
       const f = fileInput.files?.[0];
       if (!f) return;
@@ -262,6 +289,8 @@
           step: 'uploading_blob',
           message: 'Subiendo CSV directamente a Vercel Blob...',
         }, null, 2);
+
+        await assertBlobTokenEndpoint(f.name);
 
         const blob = await uploadToBlob(f.name, f, {
           access: 'public',

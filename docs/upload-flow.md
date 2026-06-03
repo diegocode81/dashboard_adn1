@@ -43,7 +43,22 @@ En Vercel:
 - `BLOB_READ_WRITE_TOKEN`: creada al conectar un Blob Store al proyecto.
 - `DATABASE_URL` o variables `PGUSER`, `PGPASSWORD`, `PGHOST`, `PGPORT`, `PGDATABASE`.
 
-Si aparece `Vercel Blob: Failed to retrieve the client token`, revisar primero que `BLOB_READ_WRITE_TOKEN` exista en el proyecto de Vercel y que `POST /api/blob-upload` responda `200` con `clientToken`.
+Variable obligatoria:
+
+- `BLOB_READ_WRITE_TOKEN`
+
+Como configurarla:
+
+1. Ir a Vercel Project.
+2. Abrir `Settings`.
+3. Abrir `Environment Variables`.
+4. Seleccionar `Add Environment Variable`.
+5. Nombre: `BLOB_READ_WRITE_TOKEN`.
+6. Valor: Read-Write Token del Blob Store conectado.
+7. Ambientes: `Production`, `Preview` y `Development`.
+8. Guardar y redeployar.
+
+Si aparece `Vercel Blob: Failed to retrieve the client token`, revisar primero que `BLOB_READ_WRITE_TOKEN` exista en el proyecto de Vercel y que `POST /api/blob-upload` responda `200` con `clientToken`. Si falta, la interfaz debe mostrar `MISSING_BLOB_READ_WRITE_TOKEN`.
 
 En local:
 

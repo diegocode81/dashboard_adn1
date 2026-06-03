@@ -30,7 +30,8 @@ export default async function handler(req, res) {
     if (!process.env.BLOB_READ_WRITE_TOKEN) {
       return res.status(500).json({
         ok: false,
-        error: 'BLOB_READ_WRITE_TOKEN no está configurado.',
+        step: 'MISSING_BLOB_READ_WRITE_TOKEN',
+        error: 'Falta configurar BLOB_READ_WRITE_TOKEN en Vercel Environment Variables',
       });
     }
 
@@ -46,10 +47,9 @@ export default async function handler(req, res) {
         return {
           allowedContentTypes: [
             'text/csv',
-            'application/csv',
             'application/vnd.ms-excel',
+            'application/csv',
             'text/plain',
-            'application/octet-stream',
           ],
           maximumSizeInBytes: 25 * 1024 * 1024,
           addRandomSuffix: true,
