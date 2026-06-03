@@ -2,7 +2,11 @@
   "name": "dashboard_adn1",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
+    "@vercel/blob": "^2.4.0",
     "csv-parse": "^5.5.6",
     "formidable": "^3.5.1",
     "pg": "^8.12.0"

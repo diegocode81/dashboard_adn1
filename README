@@ -2,3 +2,4 @@ Base de datos: Neo -- https://neon.com/
 Versionador: GitHub -- https://github.com/
 Despliegue: Vercel -- https://vercel.com/
 Dashboard: interno QA -- /qa-dashboard.html
+Carga CSV: Vercel Blob + procesamiento snapshot -- docs/upload-flow.md

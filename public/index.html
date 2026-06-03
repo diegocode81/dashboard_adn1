@@ -194,6 +194,9 @@
         Formato: CSV exportado desde Jira (filtro <code>project = "ADN PRO"</code>).  
         Acepta archivos de hasta 25MB.
       </p>
+      <p class="hint">
+        El archivo se carga primero en almacenamiento temporal y luego se procesa para actualizar el snapshot QA.
+      </p>
 
       <div class="row">
         <label class="file">
@@ -220,7 +223,9 @@
 
   </div>
 
-  <script>
+  <script type="module">
+    import { upload as uploadToBlob } from 'https://esm.sh/@vercel/blob@2.4.0/client';
+
     const fileInput = document.getElementById('file');
     const fileName  = document.getElementById('fileName');
     const submitBtn = document.getElementById('submitBtn');
@@ -234,22 +239,60 @@
       result.classList.remove('ok','bad');
     });
 
+    function safeBlobPath(fileName) {
+      const cleanName = fileName
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-zA-Z0-9._-]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        || 'jira.csv';
+      return `jira-imports/${Date.now()}-${cleanName}`;
+    }
+
     async function upload() {
       const f = fileInput.files?.[0];
       if (!f) return;
+      let currentStep = 'uploading_blob';
 
       // UI estado "cargando"
       submitBtn.disabled = true;
       const original = submitBtn.querySelector('.btn-label').textContent;
-      submitBtn.querySelector('.btn-label').textContent = 'Cargando…';
+      submitBtn.querySelector('.btn-label').textContent = 'Subiendo…';
       const sp = document.createElement('span'); sp.className = 'spinner';
       submitBtn.prepend(sp);
 
       try {
-        const fd = new FormData();
-        fd.append('file', f);
+        if (!/\.csv$/i.test(f.name)) {
+          throw new Error('Selecciona un archivo .csv');
+        }
 
-        const res = await fetch('/api/upload', { method: 'POST', body: fd });
+        result.classList.remove('ok','bad');
+        result.textContent = JSON.stringify({
+          ok: true,
+          step: 'uploading_blob',
+          message: 'Subiendo CSV a almacenamiento temporal...',
+        }, null, 2);
+
+        const blob = await uploadToBlob(safeBlobPath(f.name), f, {
+          access: 'public',
+          handleUploadUrl: '/api/blob-upload',
+          contentType: f.type || 'text/csv',
+        });
+
+        currentStep = 'processing_blob';
+        submitBtn.querySelector('.btn-label').textContent = 'Procesando…';
+        result.textContent = JSON.stringify({
+          ok: true,
+          step: 'processing_blob',
+          message: 'CSV cargado. Procesando snapshot QA en base de datos...',
+          blobUrl: blob.url,
+        }, null, 2);
+
+        const res = await fetch('/api/process-blob-upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: blob.url }),
+        });
         const txt = await res.text();
 
         let data;
@@ -264,7 +307,13 @@
         result.textContent = JSON.stringify(data, null, 2);
       } catch (err) {
         result.classList.remove('ok'); result.classList.add('bad');
-        result.textContent = JSON.stringify({ ok:false, error: String(err) }, null, 2);
+        const prefix = currentStep === 'uploading_blob'
+          ? 'Error subiendo archivo a Blob'
+          : 'Error procesando Blob';
+        result.textContent = JSON.stringify({
+          ok: false,
+          error: `${prefix}: ${err.message || String(err)}`,
+        }, null, 2);
       } finally {
         submitBtn.disabled = false;
         submitBtn.querySelector('.btn-label').textContent = original;
