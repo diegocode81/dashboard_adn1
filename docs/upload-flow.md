@@ -1,44 +1,36 @@
-# Flujo de carga CSV con Vercel Blob
+# Flujo de carga CSV con Vercel Blob Server Upload
 
-## Por que se usa Vercel Blob
+## Por que se usa Server Upload
 
-Vercel Functions tienen limite de tamano para el body del request. Cuando el CSV de Jira supera ese limite, Vercel rechaza el request antes de que `api/upload.js` pueda procesarlo y aparece `FUNCTION_PAYLOAD_TOO_LARGE`.
+El sistema usa Vercel Blob como almacenamiento temporal del CSV antes de procesarlo. En este proyecto no se usan subidas directas del navegador a Blob ni tokens generados para el cliente.
 
-Para evitarlo, el archivo ya no se envia completo a una Serverless Function. El navegador lo sube primero a Vercel Blob Storage y el backend recibe solo la URL del archivo.
+El archivo se recibe en `POST /api/upload`, el backend lo guarda con el SDK oficial `@vercel/blob` usando `put()`, lee inmediatamente la URL publica generada y procesa el CSV para actualizar el snapshot QA.
 
-## Por que no subir el CSV directo a Serverless Function
-
-El flujo multipart directo hacia `/api/upload` funciona para archivos pequenos, pero no es confiable en Vercel Free para CSV de Jira de varios MB. El request puede ser rechazado antes de llegar al handler.
-
-El endpoint `api/upload.js` se mantiene por compatibilidad, pero `public/index.html` usa el flujo Blob.
-
-## Flujo tecnico actual
+## Flujo tecnico final
 
 1. El usuario selecciona el CSV en `public/index.html`.
-2. El frontend usa `upload()` de `@vercel/blob/client`.
-3. El frontend solicita un token de subida a `POST /api/blob-upload`.
-4. El navegador sube el archivo directamente a Vercel Blob.
-5. Vercel Blob devuelve una URL del archivo subido.
-6. El frontend llama a `POST /api/process-blob-upload` con:
+2. El frontend envia un `POST multipart` a `/api/upload`.
+3. `api/upload.js` recibe el archivo con `formidable`.
+4. `api/upload.js` ejecuta:
 
-```json
-{
-  "url": "URL_DEL_ARCHIVO_EN_BLOB"
-}
+```js
+const blob = await put(filename, fileBuffer, {
+  access: 'public'
+});
 ```
 
-7. `api/process-blob-upload.js` descarga el CSV desde la URL.
-8. El backend parsea el CSV, detecta delimitador coma o punto y coma, y lee columnas reales de `public.raw_jira`.
-9. El backend ejecuta `TRUNCATE TABLE public.raw_jira RESTART IDENTITY`.
-10. El backend inserta solo columnas existentes en `public.raw_jira`.
-11. El endpoint responde el resumen de filas, columnas cargadas, columnas ignoradas, duplicados y columnas importantes faltantes.
-12. El endpoint intenta eliminar el Blob temporal al finalizar.
+5. El endpoint obtiene `blob.url`.
+6. El endpoint lee inmediatamente el CSV desde esa URL.
+7. El backend parsea el CSV, detecta delimitador coma o punto y coma, y lee columnas reales de `public.raw_jira`.
+8. El backend ejecuta `TRUNCATE TABLE public.raw_jira RESTART IDENTITY`.
+9. El backend inserta solo columnas existentes en `public.raw_jira`.
+10. El endpoint responde el resumen de filas, columnas cargadas, columnas ignoradas, duplicados y columnas importantes faltantes.
 
 ## Endpoints involucrados
 
-- `POST /api/blob-upload`: genera el token seguro para client upload hacia Vercel Blob.
-- `POST /api/process-blob-upload`: recibe la URL Blob, procesa el CSV y actualiza `public.raw_jira`.
-- `POST /api/upload`: flujo legacy multipart. No lo usa la pantalla principal.
+- `POST /api/upload`: unico endpoint de carga usado por la pantalla principal.
+
+No existen endpoints para generar tokens de cliente ni para procesar URLs enviadas desde el navegador.
 
 ## Variables de entorno necesarias
 
@@ -60,27 +52,25 @@ En local:
 4. Abrir `http://localhost:3000`.
 5. Seleccionar `Jira.csv`.
 6. Presionar `Subir y cargar`.
-7. Verificar que la respuesta indique `source: "vercel_blob"` y `mode: "snapshot_truncate_reload"`.
+7. Verificar que la respuesta indique `source: "server_upload_blob"` y `mode: "snapshot_truncate_reload"`.
 
-Nota: el callback `onUploadCompleted` de Vercel Blob puede requerir URL publica para ejecutarse en local. El procesamiento no depende de ese callback; depende de la URL que devuelve el upload del frontend.
-
-## Prueba en Vercel Free
+## Prueba en Vercel
 
 1. Crear o conectar un Blob Store al proyecto.
 2. Confirmar que existe `BLOB_READ_WRITE_TOKEN` en las variables del proyecto.
 3. Confirmar las variables de PostgreSQL/Neon.
 4. Desplegar.
 5. Abrir la URL de Vercel.
-6. Subir `Jira.csv` de aproximadamente 6MB.
-7. Verificar que no aparezca `FUNCTION_PAYLOAD_TOO_LARGE`.
-8. Verificar que `public.raw_jira` se trunque y vuelva a cargarse con el snapshot actualizado.
+6. Subir `Jira.csv`.
+7. Verificar que `public.raw_jira` se trunque y vuelva a cargarse con el snapshot actualizado.
 
 ## Resultado esperado
 
 La respuesta esperada contiene:
 
 - `ok: true`
-- `source: "vercel_blob"`
+- `source: "server_upload_blob"`
+- `blobUrl`
 - `mode: "snapshot_truncate_reload"`
 - `totalRowsReceived`
 - `totalRowsInserted`
@@ -90,4 +80,3 @@ La respuesta esperada contiene:
 - `ignoredColumns`
 - `duplicatedColumns`
 - `missingImportantColumns`
-- `blobDeleted`
