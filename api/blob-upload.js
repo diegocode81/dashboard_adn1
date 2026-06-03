@@ -1,54 +1,45 @@
 import { handleUpload } from '@vercel/blob/client';
 
 export const config = {
-  api: { bodyParser: true },
-  runtime: 'nodejs',
+  api: {
+    bodyParser: true,
+  },
 };
 
-async function readRawBody(req) {
-  const chunks = [];
-  for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks).toString('utf8');
-}
-
-async function parseBody(req) {
-  if (req.body && typeof req.body === 'object') return req.body;
-  if (typeof req.body === 'string') return JSON.parse(req.body);
-  const rawBody = await readRawBody(req);
-  return rawBody ? JSON.parse(rawBody) : undefined;
-}
-
-export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST');
-    return res.status(405).json({ ok: false, error: 'Method not allowed' });
+export default async function handler(request, response) {
+  if (request.method !== 'POST') {
+    response.setHeader('Allow', 'POST');
+    return response.status(405).json({
+      ok: false,
+      error: 'Method not allowed',
+    });
   }
 
   try {
     if (!process.env.BLOB_READ_WRITE_TOKEN) {
-      return res.status(500).json({
+      return response.status(500).json({
         ok: false,
         step: 'MISSING_BLOB_READ_WRITE_TOKEN',
         error: 'Falta configurar BLOB_READ_WRITE_TOKEN en Vercel Environment Variables',
       });
     }
 
+    const body = request.body;
+
     const jsonResponse = await handleUpload({
+      request,
+      body,
       token: process.env.BLOB_READ_WRITE_TOKEN,
-      request: req,
-      body: await parseBody(req),
       onBeforeGenerateToken: async (pathname) => {
-        if (!/\.csv$/i.test(pathname)) {
+        if (!pathname || !pathname.toLowerCase().endsWith('.csv')) {
           throw new Error('Solo se permiten archivos CSV.');
         }
 
         return {
           allowedContentTypes: [
             'text/csv',
-            'application/vnd.ms-excel',
             'application/csv',
+            'application/vnd.ms-excel',
             'text/plain',
           ],
           maximumSizeInBytes: 25 * 1024 * 1024,
@@ -59,17 +50,24 @@ export default async function handler(req, res) {
           }),
         };
       },
-      onUploadCompleted: async ({ blob }) => {
-        console.log('BLOB_UPLOAD_COMPLETED:', blob.url);
+      onUploadCompleted: async ({ blob, tokenPayload }) => {
+        console.log('BLOB_UPLOAD_COMPLETED', {
+          url: blob.url,
+          pathname: blob.pathname,
+          tokenPayload,
+        });
       },
     });
 
-    return res.status(200).json(jsonResponse);
-  } catch (err) {
-    console.error('BLOB_UPLOAD_ERROR:', err);
-    return res.status(400).json({
+    return response.status(200).json(jsonResponse);
+  } catch (error) {
+    console.error('BLOB_UPLOAD_ERROR', error);
+
+    return response.status(400).json({
       ok: false,
-      error: err?.message || 'No se pudo obtener el token de subida a Blob.',
+      step: 'BLOB_UPLOAD_TOKEN_ERROR',
+      error: error?.message || 'No se pudo generar el token de subida a Blob.',
+      details: error?.stack || null,
     });
   }
 }
