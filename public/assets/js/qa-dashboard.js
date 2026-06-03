@@ -1,22 +1,26 @@
+// ═══════════════════════════════════════════════════════
+//  DASHBOARD GENERAL (KPIs + Resúmenes)
+// ═══════════════════════════════════════════════════════
+
 const els = {
-  updatedAt: document.getElementById('updatedAt'),
-  refreshBtn: document.getElementById('refreshBtn'),
-  stateMessage: document.getElementById('stateMessage'),
-  warningsPanel: document.getElementById('warningsPanel'),
-  warningsList: document.getElementById('warningsList'),
-  totalIssues: document.getElementById('totalIssues'),
-  totalBugs: document.getElementById('totalBugs'),
-  openBugs: document.getElementById('openBugs'),
-  closedBugs: document.getElementById('closedBugs'),
-  closureRate: document.getElementById('closureRate'),
-  avgResolutionDays: document.getElementById('avgResolutionDays'),
+  updatedAt:           document.getElementById('updatedAt'),
+  refreshBtn:          document.getElementById('refreshBtn'),
+  stateMessage:        document.getElementById('stateMessage'),
+  warningsPanel:       document.getElementById('warningsPanel'),
+  warningsList:        document.getElementById('warningsList'),
+  totalIssues:         document.getElementById('totalIssues'),
+  totalBugs:           document.getElementById('totalBugs'),
+  openBugs:            document.getElementById('openBugs'),
+  closedBugs:          document.getElementById('closedBugs'),
+  closureRate:         document.getElementById('closureRate'),
+  avgResolutionDays:   document.getElementById('avgResolutionDays'),
   openBugAgingAvgDays: document.getElementById('openBugAgingAvgDays'),
-  byStatusBody: document.getElementById('byStatusBody'),
-  byPriorityBody: document.getElementById('byPriorityBody'),
-  byIssueTypeBody: document.getElementById('byIssueTypeBody'),
+  byStatusBody:        document.getElementById('byStatusBody'),
+  byPriorityBody:      document.getElementById('byPriorityBody'),
+  byIssueTypeBody:     document.getElementById('byIssueTypeBody'),
 };
 
-const formatter = new Intl.NumberFormat('es-EC');
+const formatter    = new Intl.NumberFormat('es-EC');
 const dateFormatter = new Intl.DateTimeFormat('es-EC', {
   dateStyle: 'medium',
   timeStyle: 'short',
@@ -26,126 +30,87 @@ function setState(message, type = '') {
   els.stateMessage.textContent = message;
   els.stateMessage.className = `state-message ${type}`.trim();
 }
-
 function hideState() {
   els.stateMessage.className = 'state-message hidden';
 }
-
 function formatNumber(value) {
   return formatter.format(Number(value) || 0);
 }
-
 function formatDays(value) {
-  const number = Number(value) || 0;
-  return `${formatter.format(number)} días`;
+  return `${formatter.format(Number(value) || 0)} días`;
 }
-
 function formatDate(value) {
   if (!value) return 'Sin datos';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'Sin datos';
-  return dateFormatter.format(date);
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? 'Sin datos' : dateFormatter.format(d);
 }
 
 function renderWarnings(warnings = []) {
   els.warningsList.innerHTML = '';
-
-  if (!warnings.length) {
-    els.warningsPanel.classList.add('hidden');
-    return;
-  }
-
-  for (const warning of warnings) {
+  if (!warnings.length) { els.warningsPanel.classList.add('hidden'); return; }
+  for (const w of warnings) {
     const li = document.createElement('li');
-    li.textContent = warning;
+    li.textContent = w;
     els.warningsList.appendChild(li);
   }
-
   els.warningsPanel.classList.remove('hidden');
 }
 
 function renderTable(tbody, rows, labelKey) {
   tbody.innerHTML = '';
-
   if (!rows.length) {
     const tr = document.createElement('tr');
     const td = document.createElement('td');
-    td.colSpan = 2;
-    td.textContent = 'Sin datos';
-    tr.appendChild(td);
-    tbody.appendChild(tr);
+    td.colSpan = 2; td.textContent = 'Sin datos';
+    tr.appendChild(td); tbody.appendChild(tr);
     return;
   }
-
   for (const row of rows) {
-    const tr = document.createElement('tr');
+    const tr    = document.createElement('tr');
     const label = document.createElement('td');
     const count = document.createElement('td');
-
     label.textContent = row[labelKey] || 'Sin dato';
     count.textContent = formatNumber(row.count);
-
     tr.append(label, count);
     tbody.appendChild(tr);
   }
 }
 
-function renderTotals(totals) {
-  els.totalIssues.textContent = formatNumber(totals.totalIssues);
-  els.totalBugs.textContent = formatNumber(totals.totalBugs);
-  els.openBugs.textContent = formatNumber(totals.openBugs);
-  els.closedBugs.textContent = formatNumber(totals.closedBugs);
-  els.closureRate.textContent = `${formatNumber(totals.closureRate)}%`;
-  els.avgResolutionDays.textContent = formatDays(totals.avgResolutionDays);
-  els.openBugAgingAvgDays.textContent = formatDays(totals.openBugAgingAvgDays);
+function renderTotals(t) {
+  els.totalIssues.textContent         = formatNumber(t.totalIssues);
+  els.totalBugs.textContent           = formatNumber(t.totalBugs);
+  els.openBugs.textContent            = formatNumber(t.openBugs);
+  els.closedBugs.textContent          = formatNumber(t.closedBugs);
+  els.closureRate.textContent         = `${formatNumber(t.closureRate)}%`;
+  els.avgResolutionDays.textContent   = formatDays(t.avgResolutionDays);
+  els.openBugAgingAvgDays.textContent = formatDays(t.openBugAgingAvgDays);
 }
 
 function renderDashboard(data) {
   const totals = data.totals || {};
-
   els.updatedAt.textContent = formatDate(data.updatedAt);
-  renderTotals({
-    totalIssues: totals.totalIssues,
-    totalBugs: totals.totalBugs,
-    openBugs: totals.openBugs,
-    closedBugs: totals.closedBugs,
-    closureRate: totals.closureRate,
-    avgResolutionDays: totals.avgResolutionDays,
-    openBugAgingAvgDays: totals.openBugAgingAvgDays,
-  });
-
-  renderTable(els.byStatusBody, data.byStatus || [], 'status');
-  renderTable(els.byPriorityBody, data.byPriority || [], 'priority');
+  renderTotals(totals);
+  renderTable(els.byStatusBody,    data.byStatus    || [], 'status');
+  renderTable(els.byPriorityBody,  data.byPriority  || [], 'priority');
   renderTable(els.byIssueTypeBody, data.byIssueType || [], 'issueType');
   renderWarnings(data.warnings || []);
-
   if (!totals.totalIssues) {
-    setState('No existen datos cargados todavía. Sube un CSV de Jira desde la pantalla principal para alimentar el dashboard.', '');
+    setState('No existen datos cargados todavía. Sube un CSV de Jira desde la pantalla principal.', '');
     return;
   }
-
   hideState();
 }
 
 async function loadDashboard() {
   els.refreshBtn.disabled = true;
   setState('Cargando dashboard QA...');
-
   try {
-    const res = await fetch('/api/qa-dashboard');
+    const res  = await fetch('/api/qa-dashboard');
     const text = await res.text();
     let data;
-
-    try {
-      data = JSON.parse(text);
-    } catch {
-      throw new Error(`Respuesta no es JSON: ${text.slice(0, 200)}`);
-    }
-
-    if (!res.ok || !data.ok) {
-      throw new Error(data.error || 'No se pudo cargar el dashboard QA.');
-    }
-
+    try { data = JSON.parse(text); }
+    catch { throw new Error(`Respuesta no es JSON: ${text.slice(0, 200)}`); }
+    if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo cargar el dashboard QA.');
     renderDashboard(data);
   } catch (err) {
     setState(`Error backend: ${err.message || String(err)}`, 'error');
@@ -158,82 +123,132 @@ async function loadDashboard() {
 els.refreshBtn.addEventListener('click', loadDashboard);
 loadDashboard();
 
-// ─── Seguimiento de Deltas por Equipo ────────────────────────────────────────
+// ═══════════════════════════════════════════════════════
+//  DASHBOARD DE DELTAS
+// ═══════════════════════════════════════════════════════
 
 let allDeltas = [];
-let allTeams  = [];
 
-const deltasEls = {
-  filterTeam:          document.getElementById('filterTeam'),
-  filterEpic:          document.getElementById('filterEpic'),
+const dEl = {
+  filterDomain:        document.getElementById('dFilterDomain'),
+  filterDelta:         document.getElementById('dFilterDelta'),
+  filterStatus:        document.getElementById('dFilterStatus'),
   deltasBody:          document.getElementById('deltasBody'),
-  deltasStateMessage:  document.getElementById('deltasStateMessage'),
-  deltasWarningsPanel: document.getElementById('deltasWarningsPanel'),
-  deltasWarningsList:  document.getElementById('deltasWarningsList'),
+  stateMsg:            document.getElementById('deltasStateMsg'),
+  warningsPanel:       document.getElementById('deltasWarningsPanel'),
+  warningsList:        document.getElementById('deltasWarningsList'),
+  kpiTotalDeltas:      document.getElementById('dKpiTotalDeltas'),
+  kpiTotalCards:       document.getElementById('dKpiTotalCards'),
+  kpiCompleted:        document.getElementById('dKpiCompleted'),
+  kpiInProgress:       document.getElementById('dKpiInProgress'),
+  kpiAvgProgress:      document.getElementById('dKpiAvgProgress'),
+  snapshotDate:        document.getElementById('deltasSnapshotDate'),
 };
 
-// Escapa caracteres HTML para prevenir XSS al insertar texto en el DOM.
+// ── Utilities ──────────────────────────────────────────
+
 function escapeHtml(str) {
   if (str == null) return '';
   return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function progressClass(percent) {
-  if (percent >= 80) return 'progress-high';
-  if (percent >= 50) return 'progress-medium';
+function progressClass(pct) {
+  if (pct >= 80) return 'progress-high';
+  if (pct >= 50) return 'progress-medium';
   return 'progress-low';
 }
 
+// ── Warnings ───────────────────────────────────────────
+
 function renderDeltasWarnings(warnings) {
-  deltasEls.deltasWarningsList.innerHTML = '';
-  if (!warnings.length) {
-    deltasEls.deltasWarningsPanel.classList.add('hidden');
+  dEl.warningsList.innerHTML = '';
+  if (!warnings || !warnings.length) {
+    dEl.warningsPanel.classList.add('hidden');
     return;
   }
   for (const w of warnings) {
     const li = document.createElement('li');
     li.textContent = w;
-    deltasEls.deltasWarningsList.appendChild(li);
+    dEl.warningsList.appendChild(li);
   }
-  deltasEls.deltasWarningsPanel.classList.remove('hidden');
+  dEl.warningsPanel.classList.remove('hidden');
 }
 
-function buildChildTable(childCards) {
+// ── KPIs ───────────────────────────────────────────────
+
+function renderDeltasKpis(deltas) {
+  const totalCards  = deltas.reduce((s, d) => s + d.totalCards,     0);
+  const completed   = deltas.reduce((s, d) => s + d.completedCards, 0);
+  const inProgress  = deltas.reduce((s, d) => s + d.inProgressCards,0);
+  const avgProgress = deltas.length
+    ? Math.round(deltas.reduce((s, d) => s + d.progressPercent, 0) / deltas.length * 100) / 100
+    : 0;
+
+  dEl.kpiTotalDeltas.textContent = deltas.length;
+  dEl.kpiTotalCards.textContent  = formatNumber(totalCards);
+  dEl.kpiCompleted.textContent   = formatNumber(completed);
+  dEl.kpiInProgress.textContent  = formatNumber(inProgress);
+  dEl.kpiAvgProgress.textContent = `${avgProgress}%`;
+}
+
+// ── Filters ────────────────────────────────────────────
+
+function populateDomainFilter(deltas) {
+  const current = dEl.filterDomain.value;
+  const domains = [...new Set(deltas.map((d) => d.domain))].sort();
+  dEl.filterDomain.innerHTML = '<option value="">Todos</option>';
+  for (const dom of domains) {
+    const opt = document.createElement('option');
+    opt.value = dom; opt.textContent = dom;
+    dEl.filterDomain.appendChild(opt);
+  }
+  if ([...dEl.filterDomain.options].some((o) => o.value === current)) {
+    dEl.filterDomain.value = current;
+  }
+}
+
+function populateDeltaFilter(deltas) {
+  const current = dEl.filterDelta.value;
+  dEl.filterDelta.innerHTML = '<option value="">Todas</option>';
+  for (const d of deltas) {
+    const opt = document.createElement('option');
+    opt.value = d.epicKey;
+    opt.textContent = `${d.epicKey} — ${d.epicSummary}`;
+    dEl.filterDelta.appendChild(opt);
+  }
+  if ([...dEl.filterDelta.options].some((o) => o.value === current)) {
+    dEl.filterDelta.value = current;
+  }
+}
+
+// ── Child detail table ─────────────────────────────────
+
+function buildChildDetail(childIssues) {
   const wrap = document.createElement('div');
   wrap.className = 'child-table-wrap';
-
-  if (!childCards || !childCards.length) {
-    wrap.textContent = 'Esta épica no tiene cards directas asociadas.';
+  if (!childIssues || !childIssues.length) {
+    wrap.textContent = 'Esta épica no tiene issues asociadas.';
     return wrap;
   }
-
   const table = document.createElement('table');
   table.className = 'child-table';
   table.innerHTML = `
     <thead>
       <tr>
-        <th>Key</th>
-        <th>Resumen</th>
-        <th>Tipo</th>
-        <th>Estado</th>
-        <th>Responsable</th>
+        <th>Key</th><th>Tipo</th><th>Resumen</th><th>Estado</th><th>Responsable</th>
       </tr>
-    </thead>
-  `;
+    </thead>`;
   const tbody = document.createElement('tbody');
-  for (const card of childCards) {
+  for (const issue of childIssues) {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td><code>${escapeHtml(card.key)}</code></td>
-      <td>${escapeHtml(card.summary)}</td>
-      <td>${escapeHtml(card.type)}</td>
-      <td>${escapeHtml(card.status)}</td>
-      <td>${escapeHtml(card.assignee || 'Sin asignar')}</td>
-    `;
+      <td><code>${escapeHtml(issue.key)}</code></td>
+      <td>${escapeHtml(issue.type)}</td>
+      <td>${escapeHtml(issue.summary)}</td>
+      <td>${escapeHtml(issue.status)}</td>
+      <td>${escapeHtml(issue.assignee || '—')}</td>`;
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
@@ -241,17 +256,20 @@ function buildChildTable(childCards) {
   return wrap;
 }
 
+// ── Table render ───────────────────────────────────────
+
 function renderDeltasTable(deltas) {
-  const tbody = deltasEls.deltasBody;
+  const tbody = dEl.deltasBody;
   tbody.innerHTML = '';
+
+  renderDeltasKpis(deltas);
 
   if (!deltas.length) {
     const tr = document.createElement('tr');
     const td = document.createElement('td');
     td.colSpan = 8;
-    td.textContent = 'No se encontraron Deltas/Épicas para los filtros seleccionados.';
-    tr.appendChild(td);
-    tbody.appendChild(tr);
+    td.textContent = 'No se encontraron Deltas para los filtros seleccionados.';
+    tr.appendChild(td); tbody.appendChild(tr);
     return;
   }
 
@@ -259,33 +277,27 @@ function renderDeltasTable(deltas) {
     const pct    = delta.progressPercent;
     const pClass = progressClass(pct);
 
-    // ── Fila principal ──
+    // Main row
     const tr = document.createElement('tr');
     tr.className = 'delta-row';
 
-    // Celda equipo
-    const tdTeam = document.createElement('td');
-    tdTeam.textContent = delta.team;
+    const tdDomain = document.createElement('td');
+    tdDomain.innerHTML = `<span class="domain-badge">${escapeHtml(delta.domain)}</span>`;
 
-    // Celda épica con botón expand
-    const tdEpic = document.createElement('td');
-    tdEpic.className = 'epic-cell-td';
-    tdEpic.innerHTML = `
+    const tdDelta = document.createElement('td');
+    tdDelta.className = 'epic-cell-td';
+    tdDelta.innerHTML = `
       <div class="epic-cell">
-        <button class="expand-btn" aria-expanded="false" aria-label="Ver detalle">&#9654;</button>
+        <button class="expand-btn" aria-expanded="false" aria-label="Expandir detalle">&#9654;</button>
         <span class="epic-key">${escapeHtml(delta.epicKey)}</span>
         <span class="epic-summary">${escapeHtml(delta.epicSummary)}</span>
       </div>`;
 
-    // Helper para celdas numéricas
     const tdNum = (val) => {
       const t = document.createElement('td');
-      t.className = 'num';
-      t.textContent = val;
-      return t;
+      t.className = 'num'; t.textContent = val; return t;
     };
 
-    // Celda barra de progreso
     const tdProgress = document.createElement('td');
     tdProgress.className = 'progress-cell';
     tdProgress.innerHTML = `
@@ -295,122 +307,101 @@ function renderDeltasTable(deltas) {
       <span class="progress-label">${pct}%</span>`;
 
     tr.append(
-      tdTeam,
-      tdEpic,
-      tdNum(delta.totalCards),
-      tdNum(delta.completedCards),
-      tdNum(delta.inProgressCards),
-      tdNum(delta.pendingCards),
-      tdNum(delta.blockedCards),
-      tdProgress
+      tdDomain, tdDelta,
+      tdNum(delta.totalCards), tdNum(delta.completedCards),
+      tdNum(delta.inProgressCards), tdNum(delta.pendingCards),
+      tdNum(delta.blockedCards), tdProgress
     );
     tbody.appendChild(tr);
 
-    // ── Fila de detalle (oculta por defecto) ──
+    // Detail row (hidden by default)
     const detailTr = document.createElement('tr');
     detailTr.className = 'delta-detail-row hidden';
-
     const detailTd = document.createElement('td');
     detailTd.colSpan = 8;
     detailTd.className = 'detail-cell';
-    detailTd.appendChild(buildChildTable(delta.childCards));
+    detailTd.appendChild(buildChildDetail(delta.childIssues));
     detailTr.appendChild(detailTd);
     tbody.appendChild(detailTr);
 
     // Toggle expand/collapse
-    const expandBtn = tdEpic.querySelector('.expand-btn');
-    expandBtn.addEventListener('click', () => {
-      const expanded = expandBtn.getAttribute('aria-expanded') === 'true';
-      expandBtn.setAttribute('aria-expanded', String(!expanded));
-      expandBtn.textContent = expanded ? '\u25B6' : '\u25BC';
+    tdDelta.querySelector('.expand-btn').addEventListener('click', () => {
+      const btn      = tdDelta.querySelector('.expand-btn');
+      const expanded = btn.getAttribute('aria-expanded') === 'true';
+      btn.setAttribute('aria-expanded', String(!expanded));
+      btn.textContent = expanded ? '\u25B6' : '\u25BC';
       detailTr.classList.toggle('hidden', expanded);
     });
   }
 }
 
-function populateEpicFilter(deltas) {
-  const currentVal = deltasEls.filterEpic.value;
-  deltasEls.filterEpic.innerHTML = '<option value="">Todas</option>';
-  for (const delta of deltas) {
-    const opt = document.createElement('option');
-    opt.value = delta.epicKey;
-    opt.textContent = `${delta.epicKey} — ${delta.epicSummary}`;
-    deltasEls.filterEpic.appendChild(opt);
-  }
-  // Restaurar selección si sigue siendo válida
-  const stillValid = [...deltasEls.filterEpic.options].some((o) => o.value === currentVal);
-  if (stillValid) deltasEls.filterEpic.value = currentVal;
-}
-
-function populateTeamFilter(teams) {
-  deltasEls.filterTeam.innerHTML = '<option value="">Todos</option>';
-  for (const team of teams) {
-    const opt = document.createElement('option');
-    opt.value = team;
-    opt.textContent = team;
-    deltasEls.filterTeam.appendChild(opt);
-  }
-}
+// ── Filter + render ────────────────────────────────────
 
 function filterAndRenderDeltas() {
-  const teamFilter = deltasEls.filterTeam.value;
-  const epicFilter = deltasEls.filterEpic.value;
+  const domain = dEl.filterDomain.value;
+  const key    = dEl.filterDelta.value;
+  const status = dEl.filterStatus.value;
 
   let filtered = allDeltas;
-  if (teamFilter) filtered = filtered.filter((d) => d.team === teamFilter);
-  if (epicFilter) filtered = filtered.filter((d) => d.epicKey === epicFilter);
+  if (domain) filtered = filtered.filter((d) => d.domain === domain);
+  if (key)    filtered = filtered.filter((d) => d.epicKey === key);
+  if (status) {
+    filtered = filtered.filter((d) => {
+      if (status === 'inprogress') return d.progressPercent > 0 && d.progressPercent < 100;
+      if (status === 'completed')  return d.progressPercent >= 100 && d.totalCards > 0;
+      if (status === 'pending')    return d.progressPercent === 0;
+      return true;
+    });
+  }
 
   renderDeltasTable(filtered);
 }
 
+// ── Load from API ──────────────────────────────────────
+
 async function loadDeltas() {
-  deltasEls.deltasStateMessage.textContent = 'Cargando análisis de Deltas...';
-  deltasEls.deltasStateMessage.className = 'state-message';
+  dEl.stateMsg.textContent = 'Cargando análisis de Deltas...';
+  dEl.stateMsg.className   = 'state-message';
 
   try {
     const res  = await fetch('/api/qa-deltas');
     const text = await res.text();
     let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      throw new Error(`Respuesta no es JSON: ${text.slice(0, 200)}`);
-    }
+    try { data = JSON.parse(text); }
+    catch { throw new Error(`Respuesta no es JSON: ${text.slice(0, 200)}`); }
 
     if (!data.ok) {
-      deltasEls.deltasStateMessage.textContent =
-        data.error || 'No se pudo calcular el análisis de Deltas.';
-      deltasEls.deltasStateMessage.className = 'state-message error';
+      dEl.stateMsg.textContent = data.error || 'Error al cargar Deltas.';
+      dEl.stateMsg.className   = 'state-message error';
       renderDeltasWarnings([]);
       return;
     }
 
     allDeltas = data.deltas || [];
-    allTeams  = data.teams  || [];
 
-    populateTeamFilter(allTeams);
-    populateEpicFilter(allDeltas);
+    if (dEl.snapshotDate) dEl.snapshotDate.textContent = formatDate(data.snapshotDate);
+
+    populateDomainFilter(allDeltas);
+    populateDeltaFilter(allDeltas);
     filterAndRenderDeltas();
     renderDeltasWarnings(data.warnings || []);
 
-    deltasEls.deltasStateMessage.className = 'state-message hidden';
+    dEl.stateMsg.className = 'state-message hidden';
   } catch (err) {
-    deltasEls.deltasStateMessage.textContent = `Error al cargar Deltas: ${err.message || String(err)}`;
-    deltasEls.deltasStateMessage.className = 'state-message error';
+    dEl.stateMsg.textContent = `Error al cargar Deltas: ${err.message || String(err)}`;
+    dEl.stateMsg.className   = 'state-message error';
   }
 }
 
-// Listeners de filtros
-deltasEls.filterTeam.addEventListener('change', () => {
-  const teamFilter = deltasEls.filterTeam.value;
-  const scopedDeltas = teamFilter
-    ? allDeltas.filter((d) => d.team === teamFilter)
-    : allDeltas;
-  populateEpicFilter(scopedDeltas);
+// ── Event listeners ────────────────────────────────────
+
+dEl.filterDomain.addEventListener('change', () => {
+  const dom          = dEl.filterDomain.value;
+  const scopedDeltas = dom ? allDeltas.filter((d) => d.domain === dom) : allDeltas;
+  populateDeltaFilter(scopedDeltas);
   filterAndRenderDeltas();
 });
+dEl.filterDelta.addEventListener('change', filterAndRenderDeltas);
+dEl.filterStatus.addEventListener('change', filterAndRenderDeltas);
 
-deltasEls.filterEpic.addEventListener('change', filterAndRenderDeltas);
-
-// Cargar Deltas al iniciar la página
 loadDeltas();

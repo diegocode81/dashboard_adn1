@@ -64,51 +64,96 @@
         </article>
       </section>
 
-      <!-- ─── Seguimiento de Deltas por Equipo ─── -->
-      <section class="deltas-section" aria-label="Seguimiento de Deltas por Equipo">
-        <div class="section-header deltas-header">
-          <h2>Seguimiento de Deltas por Equipo</h2>
-          <div class="deltas-filters">
-            <label>
-              <span>Equipo</span>
-              <select id="filterTeam">
-                <option value="">Todos</option>
-              </select>
-            </label>
-            <label>
-              <span>Épica / Delta</span>
-              <select id="filterEpic">
-                <option value="">Todas</option>
-              </select>
-            </label>
+      <!-- ─── SEGUIMIENTO DE DELTAS ─── -->
+      <section class="deltas-section" aria-label="Seguimiento de Deltas">
+
+        <!-- Title bar -->
+        <div class="deltas-title-bar">
+          <div>
+            <h2 class="deltas-title">SEGUIMIENTO DE DELTAS</h2>
+            <p class="deltas-subtitle">Estado actual de las Épicas (Deltas) cargadas desde Jira.</p>
+          </div>
+          <div class="deltas-meta-box">
+            <span class="meta-label">Snapshot</span>
+            <strong id="deltasSnapshotDate">—</strong>
           </div>
         </div>
-        <div class="deltas-content">
-          <div id="deltasStateMessage" class="state-message hidden" aria-live="polite"></div>
+
+        <!-- KPI cards -->
+        <div class="deltas-kpi-row">
+          <div class="deltas-kpi-card">
+            <span>Total Deltas</span>
+            <strong id="dKpiTotalDeltas">—</strong>
+          </div>
+          <div class="deltas-kpi-card">
+            <span>Total Cards</span>
+            <strong id="dKpiTotalCards">—</strong>
+          </div>
+          <div class="deltas-kpi-card">
+            <span>Cards Finalizadas</span>
+            <strong id="dKpiCompleted">—</strong>
+          </div>
+          <div class="deltas-kpi-card">
+            <span>Cards En Progreso</span>
+            <strong id="dKpiInProgress">—</strong>
+          </div>
+          <div class="deltas-kpi-card">
+            <span>Promedio Avance</span>
+            <strong id="dKpiAvgProgress">—</strong>
+          </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="deltas-filters-bar">
+          <label class="deltas-filter">
+            <span>Dominio</span>
+            <select id="dFilterDomain"><option value="">Todos</option></select>
+          </label>
+          <label class="deltas-filter">
+            <span>Delta</span>
+            <select id="dFilterDelta"><option value="">Todas</option></select>
+          </label>
+          <label class="deltas-filter">
+            <span>Estado</span>
+            <select id="dFilterStatus">
+              <option value="">Todos</option>
+              <option value="inprogress">En progreso</option>
+              <option value="completed">Finalizados</option>
+              <option value="pending">Pendientes</option>
+            </select>
+          </label>
+        </div>
+
+        <!-- Messages -->
+        <div class="deltas-messages">
+          <div id="deltasStateMsg" class="state-message hidden" aria-live="polite"></div>
           <div id="deltasWarningsPanel" class="warnings hidden" aria-live="polite">
-            <h2>Advertencias de Deltas</h2>
+            <h2>Advertencias</h2>
             <ul id="deltasWarningsList"></ul>
           </div>
-          <div class="table-wrap">
-            <table id="deltasTable">
-              <thead>
-                <tr>
-                  <th>Equipo</th>
-                  <th>Delta / Épica</th>
-                  <th class="num">Total</th>
-                  <th class="num">✓ Finalizadas</th>
-                  <th class="num">↻ En progreso</th>
-                  <th class="num">○ Pendientes</th>
-                  <th class="num">✕ Bloqueadas</th>
-                  <th class="progress-th">% Avance</th>
-                </tr>
-              </thead>
-              <tbody id="deltasBody">
-                <tr><td colspan="8">Cargando análisis de Deltas...</td></tr>
-              </tbody>
-            </table>
-          </div>
         </div>
+
+        <!-- Table -->
+        <div class="table-wrap">
+          <table id="deltasTable">
+            <thead>
+              <tr>
+                <th>Dominio</th>
+                <th>Delta</th>
+                <th class="num">Total</th>
+                <th class="num">Finaliz.</th>
+                <th class="num">En prog.</th>
+                <th class="num">Pendient.</th>
+                <th class="num">Bloq.</th>
+                <th class="progress-th">Avance</th>
+              </tr>
+            </thead>
+            <tbody id="deltasBody">
+              <tr><td colspan="8">Cargando análisis de Deltas...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
       </section>
 
       <section class="tables-grid" aria-label="Resúmenes agrupados">

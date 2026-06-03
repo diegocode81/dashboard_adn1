@@ -1,74 +1,48 @@
 import { withClient } from './_db.js';
 
-function quoteIdent(identifier) {
-  return `"${identifier.replace(/"/g, '""')}"`;
+function quoteIdent(id) {
+  return `"${id.replace(/"/g, '""')}"`;
 }
 
-function pickColumn(tableColumns, candidates) {
-  return candidates.find((c) => tableColumns.has(c)) || null;
+function pick(cols, candidates) {
+  return candidates.find((c) => cols.has(c)) || null;
 }
 
-// ─── Columnas candidatas ───────────────────────────────────────────────────
-const KEY_COLS       = ['clave_de_incincia', 'clave_de_incidencia', 'issue_key', 'key'];
-const SUMMARY_COLS   = ['resumen', 'summary'];
-const TYPE_COLS      = ['tipo_de_incidente', 'tipo_de_incidencia', 'issue_type', 'issuetype'];
-const STATUS_COLS    = ['estado', 'status'];
-const ASSIGNEE_COLS  = ['persona_asignada', 'assignee'];
-// Usamos SÓLO clave_principal para relación padre-hijo (no "principal" que puede ser ID numérico)
-const PARENT_COLS    = ['clave_principal', 'parent', 'parent_key'];
-const PARENT_SUM_COLS = ['parent_summary'];
+// ─── Column candidates ────────────────────────────────────────────────────
+const KEY_COLS      = ['clave_de_incincia', 'clave_de_incidencia', 'issue_key'];
+const SUMMARY_COLS  = ['resumen', 'summary'];
+const TYPE_COLS     = ['tipo_de_incidente', 'tipo_de_incidencia', 'issue_type', 'issuetype'];
+const STATUS_COLS   = ['estado', 'status'];
+const ASSIGNEE_COLS = ['persona_asignada', 'assignee'];
+// Only clave_principal — not "principal" (may contain numeric IDs)
+const PARENT_COLS   = ['clave_principal', 'parent', 'parent_key'];
+const PSUM_COLS     = ['parent_summary'];
 
-// Candidatos de equipo en orden de prioridad
-const TEAM_COL_CANDIDATES = [
-  'campo_personalizado_equipo',
-  'campo_personalizado_nombre_de_equipo_ti_gdd',
-  'campo_personalizado_nombre_de_equipo_ti__gdd_',
-  'team_name',
-  'componentes',
-  'components',
-  'etiquetas',
-  'labels',
+// ─── Domain detection (text inference only) ───────────────────────────────
+// Most specific patterns first to avoid partial matches
+const DOMAIN_PATTERNS = [
+  { re: /\bEQD\b/i,                           domain: () => 'EQD' },
+  { re: /\b(EQ[1-6])\b/i,                    domain: (m) => m[1].toUpperCase() },
+  { re: /Relaci[oó]n\s+con\s+el\s+cliente/i,  domain: () => 'Relación con el cliente' },
+  { re: /Aplicaciones\s+Externas/i,            domain: () => 'Aplicaciones Externas' },
+  { re: /Dise[ñn]o\s+UX/i,                    domain: () => 'Diseño UX' },
+  { re: /Originaci[oó]n/i,                     domain: () => 'Originación' },
+  { re: /URPIPRO/i,                            domain: () => 'URPIPRO' },
+  { re: /Soporte/i,                            domain: () => 'Soporte' },
 ];
 
-// ─── Inferencia de equipo desde texto ──────────────────────────────────────
-// Patrones de más específico a menos específico
-const TEAM_PATTERNS = [
-  { re: /Soporte\s+URPIPRO/i,               name: () => 'Soporte URPIPRO' },
-  { re: /Relaci[oó]n\s+con\s+el\s+cliente/i, name: () => 'Relación con el cliente' },
-  { re: /Aplicaciones\s+Externas/i,          name: () => 'Aplicaciones Externas' },
-  { re: /Dise[ñn]o\s+UX/i,                  name: () => 'Diseño UX' },
-  { re: /Originaci[oó]n/i,                   name: () => 'Originación' },
-  { re: /\bEQD\b/i,                          name: () => 'EQD' },
-  { re: /\b(EQ[0-9]+)\b/i,                  name: (m) => m[1].toUpperCase() },
-  { re: /\bUX\b/i,                           name: () => 'UX' },
-  { re: /Soporte/i,                          name: () => 'Soporte' },
-];
-
-function inferTeamFromText(text) {
-  if (!text) return null;
-  for (const { re, name } of TEAM_PATTERNS) {
-    const m = text.match(re);
-    if (m) return name(m);
+function detectDomain(...texts) {
+  for (const text of texts) {
+    if (!text) continue;
+    for (const { re, domain } of DOMAIN_PATTERNS) {
+      const m = text.match(re);
+      if (m) return domain(m);
+    }
   }
-  return null;
+  return 'Sin clasificar';
 }
 
-/**
- * Detecta el equipo de una issue row.
- * 1. Valor explícito en _team (ya resuelto con COALESCE en SQL).
- * 2. Inferencia desde _summary.
- * 3. Inferencia desde _parent_summary.
- */
-function detectTeamFromIssue(row) {
-  if (row._team) return row._team;
-  return (
-    inferTeamFromText(row._summary) ||
-    inferTeamFromText(row._parent_summary) ||
-    null
-  );
-}
-
-// ─── Clasificación de estado ───────────────────────────────────────────────
+// ─── Status classification ────────────────────────────────────────────────
 function classifyStatus(status) {
   if (!status) return 'pending';
   const s = status.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
@@ -93,7 +67,7 @@ function classifyStatus(status) {
   return 'pending';
 }
 
-// ─── Handler ───────────────────────────────────────────────────────────────
+// ─── Handler ──────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET');
@@ -102,281 +76,202 @@ export default async function handler(req, res) {
 
   try {
     const result = await withClient(async (client) => {
-      // 1. Detectar columnas disponibles
-      const { rows: columnRows } = await client.query(`
+      // 1. Detect available columns
+      const { rows: colRows } = await client.query(`
         SELECT column_name
         FROM information_schema.columns
         WHERE table_schema = 'public' AND table_name = 'raw_jira'
         ORDER BY ordinal_position
       `);
-      const tableColumns = new Set(columnRows.map((r) => r.column_name));
-      const warnings = [];
+      const tableColumns = new Set(colRows.map((r) => r.column_name));
 
       if (tableColumns.size === 0) {
         return {
           ok: false,
-          step: 'EPIC_RELATION_NOT_FOUND',
           error: 'Tabla public.raw_jira no encontrada o sin columnas.',
-          availableColumns: [],
+          snapshotDate: new Date().toISOString(),
+          totalDeltas: 0,
+          deltas: [],
+          warnings: [],
         };
       }
 
-      // 2. Resolver columnas
-      const keyCol         = pickColumn(tableColumns, KEY_COLS);
-      const summaryCol     = pickColumn(tableColumns, SUMMARY_COLS);
-      const typeCol        = pickColumn(tableColumns, TYPE_COLS);
-      const statusCol      = pickColumn(tableColumns, STATUS_COLS);
-      const assigneeCol    = pickColumn(tableColumns, ASSIGNEE_COLS);
-      const parentCol      = pickColumn(tableColumns, PARENT_COLS);
-      const parentSumCol   = pickColumn(tableColumns, PARENT_SUM_COLS);
-
-      // Todas las columnas de equipo que existen en la tabla (en orden de prioridad)
-      const existingTeamCols = TEAM_COL_CANDIDATES.filter((c) => tableColumns.has(c));
-      const hasExplicitTeamCol = existingTeamCols.length > 0;
+      // 2. Resolve column names
+      const keyCol      = pick(tableColumns, KEY_COLS);
+      const summaryCol  = pick(tableColumns, SUMMARY_COLS);
+      const typeCol     = pick(tableColumns, TYPE_COLS);
+      const statusCol   = pick(tableColumns, STATUS_COLS);
+      const assigneeCol = pick(tableColumns, ASSIGNEE_COLS);
+      const parentCol   = pick(tableColumns, PARENT_COLS);
+      const pSumCol     = pick(tableColumns, PSUM_COLS);
 
       if (!typeCol) {
         return {
           ok: false,
-          step: 'EPIC_RELATION_NOT_FOUND',
-          error: 'No se pudo identificar la columna de tipo de incidencia.',
+          error: 'No se encontró columna de tipo de incidencia.',
+          snapshotDate: new Date().toISOString(),
+          totalDeltas: 0,
+          deltas: [],
+          warnings: [],
           availableColumns: [...tableColumns],
         };
       }
       if (!parentCol) {
         return {
           ok: false,
-          step: 'EPIC_RELATION_NOT_FOUND',
-          error: 'No se pudo identificar la columna de relación padre/hijo (clave_principal / parent).',
+          error: 'No se encontró columna de relación padre/hijo (clave_principal).',
+          snapshotDate: new Date().toISOString(),
+          totalDeltas: 0,
+          deltas: [],
+          warnings: [],
           availableColumns: [...tableColumns],
         };
       }
 
-      // 3. Construir expresión SQL para equipo (COALESCE sobre todas las columnas encontradas)
+      // 3. Fetch all rows with normalized aliases
       const sel = (col, alias) =>
         col
-          ? `COALESCE(NULLIF(TRIM(${quoteIdent(col)}::text), ''), '') AS ${alias}`
-          : `'' AS ${alias}`;
+          ? `COALESCE(NULLIF(TRIM(${quoteIdent(col)}::text), ''), '') AS "${alias}"`
+          : `'' AS "${alias}"`;
 
-      const teamExpr = hasExplicitTeamCol
-        ? `COALESCE(${existingTeamCols
-            .map((c) => `NULLIF(TRIM(${quoteIdent(c)}::text), '')`)
-            .join(', ')}, '') AS _team`
-        : `'' AS _team`;
-
-      // 4. Fetch todas las rows
       const { rows: allRows } = await client.query(`
         SELECT
-          ${sel(keyCol,       '_key')},
-          ${sel(summaryCol,   '_summary')},
-          ${sel(typeCol,      '_issue_type')},
-          ${sel(statusCol,    '_status')},
+          ${sel(keyCol,      'k')},
+          ${sel(summaryCol,  's')},
+          ${sel(typeCol,     'it')},
+          ${sel(statusCol,   'st')},
           ${assigneeCol
-            ? `NULLIF(TRIM(${quoteIdent(assigneeCol)}::text), '') AS _assignee`
-            : 'NULL::text AS _assignee'},
-          ${sel(parentCol,    '_parent')},
-          ${sel(parentSumCol, '_parent_summary')},
-          ${teamExpr}
+            ? `NULLIF(TRIM(${quoteIdent(assigneeCol)}::text), '') AS "asgn"`
+            : 'NULL::text AS "asgn"'},
+          ${sel(parentCol,   'par')},
+          ${sel(pSumCol,     'psum')}
         FROM public.raw_jira
       `);
 
-      // 5. Construir índice por clave
+      // 4. Build index by key  (O(1) lookups for hierarchy resolution)
       const issuesByKey = new Map();
       for (const row of allRows) {
-        if (row._key) issuesByKey.set(row._key, row);
+        if (row.k) issuesByKey.set(row.k, row);
       }
 
-      // 6. Identificar épicas
+      // 5. Identify epics
       const isEpicType = (typeStr) => {
+        if (!typeStr) return false;
         const t = typeStr.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         return t.includes('epic') || t.includes('epica');
       };
 
-      const epics = allRows.filter((r) => isEpicType(r._issue_type));
+      const epics = allRows.filter((r) => isEpicType(r.it));
+      const epicKeys = new Set(epics.map((e) => e.k).filter(Boolean));
 
-      if (!epics.length) {
-        warnings.push(
-          'No se encontraron épicas. Verifica que tipo_de_incidente contenga "Épica" o "Epic".'
-        );
-      }
-
-      const epicKeys = new Set(epics.map((e) => e._key).filter(Boolean));
-
-      // 7. resolveEpicKey: sube por la cadena de padres hasta encontrar una épica (máx 5 niveles)
-      function resolveEpicKey(startIssue) {
+      // 6. resolveEpic: walk up parent chain (max 5 levels, cycle-safe)
+      function resolveEpic(startIssue) {
         if (!startIssue) return null;
         const visited = new Set();
-        let current = startIssue;
+        let cur = startIssue;
 
         for (let depth = 0; depth <= 5; depth++) {
-          if (!current) return null;
-          if (visited.has(current._key)) return null; // ciclo detectado
-          visited.add(current._key);
+          if (!cur) return null;
+          if (visited.has(cur.k)) return null; // cycle guard
+          visited.add(cur.k);
 
-          if (isEpicType(current._issue_type)) return current._key;
+          if (isEpicType(cur.it)) return cur.k;
 
-          const parentKey = current._parent;
+          const parentKey = cur.par;
           if (!parentKey) return null;
-          current = issuesByKey.get(parentKey) || null;
+          cur = issuesByKey.get(parentKey) || null;
         }
         return null;
       }
 
-      // 8. Construir mapa de deltas a partir de épicas
+      // 7. Build delta map from epics
       const deltaMap = new Map();
       for (const epic of epics) {
-        if (!epic._key) continue;
-        const explicitTeam = detectTeamFromIssue(epic);
-        deltaMap.set(epic._key, {
-          team:              explicitTeam || null,  // se resolverá en paso 10
-          epicKey:           epic._key,
-          epicSummary:       epic._summary || epic._key,
-          totalCards:        0,
-          completedCards:    0,
-          inProgressCards:   0,
-          pendingCards:      0,
-          blockedCards:      0,
-          progressPercent:   0,
-          statusBreakdown:   {},
-          issueTypeBreakdown:{},
-          childCards:        [],
-          _teamVotes:        {},  // votos de equipo desde cards hijas
+        if (!epic.k) continue;
+        deltaMap.set(epic.k, {
+          epicKey:          epic.k,
+          epicSummary:      epic.s || epic.k,
+          domain:           detectDomain(epic.s, epic.psum),
+          totalCards:       0,
+          completedCards:   0,
+          inProgressCards:  0,
+          pendingCards:     0,
+          blockedCards:     0,
+          progressPercent:  0,
+          childIssues:      [],
         });
       }
 
-      // 9. Asociar TODAS las issues no-épicas a su épica (directa o indirectamente)
+      // 8. Associate ALL non-epic issues to their epic (direct or indirect)
       let unassociated = 0;
       for (const row of allRows) {
-        if (epicKeys.has(row._key)) continue; // saltar las propias épicas
+        if (epicKeys.has(row.k)) continue; // skip epics themselves
 
-        const epicKey = resolveEpicKey(row);
-        if (!epicKey) {
-          unassociated++;
-          continue;
-        }
+        const epicKey = resolveEpic(row);
+        if (!epicKey) { unassociated++; continue; }
 
         const delta = deltaMap.get(epicKey);
-        if (!delta) {
-          unassociated++;
-          continue;
-        }
+        if (!delta) { unassociated++; continue; }
 
         delta.totalCards++;
 
-        const cat = classifyStatus(row._status);
+        const cat = classifyStatus(row.st);
         if      (cat === 'completed')  delta.completedCards++;
         else if (cat === 'inprogress') delta.inProgressCards++;
         else if (cat === 'blocked')    delta.blockedCards++;
         else                           delta.pendingCards++;
 
-        // Breakdowns
-        const stLabel = row._status || 'Sin estado';
-        delta.statusBreakdown[stLabel] = (delta.statusBreakdown[stLabel] || 0) + 1;
-
-        const itLabel = row._issue_type || 'Sin tipo';
-        delta.issueTypeBreakdown[itLabel] = (delta.issueTypeBreakdown[itLabel] || 0) + 1;
-
-        // Voto de equipo desde la card hija
-        const cardTeam = detectTeamFromIssue(row);
-        if (cardTeam) {
-          delta._teamVotes[cardTeam] = (delta._teamVotes[cardTeam] || 0) + 1;
-        }
-
-        delta.childCards.push({
-          key:      row._key,
-          summary:  row._summary,
-          type:     row._issue_type,
-          status:   row._status,
-          assignee: row._assignee,
+        delta.childIssues.push({
+          key:      row.k,
+          type:     row.it,
+          summary:  row.s,
+          status:   row.st,
+          assignee: row.asgn,
         });
       }
 
-      if (unassociated > 0) {
-        warnings.push(
-          `${unassociated} cards no pudieron asociarse a una épica después de resolver jerarquía padre/hijo.`
-        );
-      }
-
-      // 10. Finalizar cada delta: equipo, progreso, breakdowns
-      let epicsWithoutTeam  = 0;
-      let epicsWithoutCards = 0;
-
+      // 9. Finalize deltas (progress %)
       for (const delta of deltaMap.values()) {
-        if (delta.totalCards === 0) epicsWithoutCards++;
-
-        // Resolver equipo: explícito > voto mayoritario de hijos > inferencia > fallback
-        if (!delta.team) {
-          const votes   = delta._teamVotes;
-          const topVote = Object.entries(votes).sort((a, b) => b[1] - a[1])[0];
-          if (topVote) {
-            delta.team = topVote[0];
-          } else {
-            delta.team = inferTeamFromText(delta.epicSummary) || 'Sin equipo identificado';
-            if (delta.team === 'Sin equipo identificado') epicsWithoutTeam++;
-          }
-        }
-        delete delta._teamVotes;
-
-        // Porcentaje de avance
         delta.progressPercent = delta.totalCards > 0
           ? Math.round((delta.completedCards / delta.totalCards) * 10000) / 100
           : 0;
-
-        // Convertir breakdowns a arrays ordenados
-        delta.statusBreakdown = Object.entries(delta.statusBreakdown)
-          .map(([status, count]) => ({ status, count }))
-          .sort((a, b) => b.count - a.count);
-
-        delta.issueTypeBreakdown = Object.entries(delta.issueTypeBreakdown)
-          .map(([type, count]) => ({ type, count }))
-          .sort((a, b) => b.count - a.count);
       }
 
-      // 11. Construir warnings finales
-      if (!hasExplicitTeamCol) {
-        warnings.push(
-          'No se encontró columna de equipo explícita. El equipo fue inferido desde texto cuando fue posible.'
-        );
-      }
-      if (!assigneeCol) {
-        warnings.push('No se encontró columna de responsable (persona_asignada / assignee).');
-      }
-      if (epicsWithoutTeam > 0) {
-        warnings.push(`No se pudo identificar equipo para ${epicsWithoutTeam} épica(s).`);
-      }
-      if (epicsWithoutCards > 0) {
-        warnings.push(`${epicsWithoutCards} épica(s) no tienen cards asociadas en el dataset actual.`);
-      }
-
-      // 12. Construir respuesta final
+      // 10. Sort: lowest progress first, then most pending
       const deltas = [...deltaMap.values()].sort(
-        (a, b) => a.team.localeCompare(b.team) || a.epicKey.localeCompare(b.epicKey)
+        (a, b) => a.progressPercent - b.progressPercent || b.pendingCards - a.pendingCards
       );
-      const teams = [...new Set(deltas.map((d) => d.team))].sort();
 
-      let updatedAt = new Date().toISOString();
+      // 11. Warnings
+      const warnings = [];
+      if (!epics.length) {
+        warnings.push('No se encontraron Épicas. Verifica que tipo_de_incidente contenga "Épica" o "Epic".');
+      }
+      if (unassociated > 0) {
+        warnings.push(`${unassociated} incidencias no pudieron asociarse a ninguna Épica.`);
+      }
+
+      // 12. Snapshot date
+      let snapshotDate = new Date().toISOString();
       if (tableColumns.has('uploaded_at')) {
         const { rows: upRows } = await client.query(
           'SELECT MAX(uploaded_at) AS ua FROM public.raw_jira'
         );
-        if (upRows[0]?.ua) updatedAt = new Date(upRows[0].ua).toISOString();
+        if (upRows[0]?.ua) snapshotDate = new Date(upRows[0].ua).toISOString();
       }
 
       return {
         ok: true,
-        updatedAt,
-        teams,
+        snapshotDate,
+        totalDeltas: deltas.length,
         deltas,
-        detectedColumns: {
-          key:        keyCol,
-          summary:    summaryCol,
-          issueType:  typeCol,
-          status:     statusCol,
-          assignee:   assigneeCol,
-          parent:     parentCol,
-          parentSum:  parentSumCol,
-          teamCols:   existingTeamCols,
-        },
         warnings,
+        _meta: {
+          detectedColumns: { keyCol, summaryCol, typeCol, statusCol, assigneeCol, parentCol, pSumCol },
+          totalEpics: epics.length,
+          totalIssues: allRows.length,
+          unassociated,
+        },
       };
     });
 
@@ -385,7 +280,11 @@ export default async function handler(req, res) {
     console.error('QA_DELTAS_ERROR:', err);
     return res.status(500).json({
       ok: false,
-      error: err?.message || 'No se pudo calcular el análisis de Deltas.',
+      error: err?.message || 'Error al calcular el análisis de Deltas.',
+      snapshotDate: new Date().toISOString(),
+      totalDeltas: 0,
+      deltas: [],
+      warnings: [],
     });
   }
 }
