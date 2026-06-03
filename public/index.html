@@ -185,7 +185,7 @@
     <header>
       <h1 class="title">Subir CSV de Jira → Cargar en Base  → ADN1</h1>
       <p class="subtitle">
-        Cada carga <strong>TRUNCA</strong> la tabla <code>raw_jira</code> y deja el snapshot más reciente.
+        Importa la información de Jira y genera indicadores y dashboards QA internos para el seguimiento del proyecto.
       </p>
     </header>
 
@@ -207,6 +207,10 @@
         </button>
       </div>
 
+      <p class="hint">
+        Una vez procesada la información podrás consultar los KPIs y métricas directamente desde el dashboard interno.
+      </p>
+
       <pre id="result" class="result" aria-live="polite">{ }</pre>
 
       <div class="row">
@@ -214,9 +218,6 @@
       </div>
     </section>
 
-    <footer>
-      Link a: <a href="https://diegocode81.grafana.net/public-dashboards/b7913af3102248a48f901f8b37d637ea" target="_blank" rel="noopener">Dashboard Urpi Pro</a>
-    </footer>
   </div>
 
   <script>

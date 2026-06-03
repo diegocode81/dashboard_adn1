@@ -4,7 +4,7 @@
 
 El repositorio actual implementa una aplicación web mínima para cargar un CSV exportado desde Jira, procesarlo en una función serverless y reemplazar el contenido de una tabla PostgreSQL llamada `public.raw_jira`. La interfaz se encuentra en `public/index.html`, el backend está en la carpeta `api/` y la persistencia usa PostgreSQL/Neon mediante la dependencia `pg`.
 
-El sistema ya contiene una base técnica relacionada con Jira, carga de archivos, normalización de columnas y almacenamiento de datos crudos. No se encontró un dashboard interno, motor de KPIs, autenticación, roles, permisos, pruebas automatizadas, modelos formales ni integración con Jira API. El dashboard actualmente se consume mediante un enlace externo a Grafana desde el HTML público.
+El sistema ya contiene una base técnica relacionada con Jira, carga de archivos, normalización de columnas y almacenamiento de datos crudos. En una fase posterior a este análisis se incorporó un dashboard QA interno básico. No se encontró autenticación, roles, permisos, pruebas automatizadas, modelos formales ni integración con Jira API.
 
 Inferencia técnica: el nuevo módulo provisional "QA Jira KPI Dashboard" debería evolucionar desde la capacidad existente de ingesta CSV/Jira, pero conviene separarlo conceptualmente en tres capas: ingesta/validación de archivo, normalización/análisis de tarjetas Jira y visualización de KPIs. En el estado actual, la primera etapa más segura es un MVP documental y funcionalmente acotado basado en carga manual de Excel/CSV, cálculo de KPIs básicos y una visualización simple, sin asumir integración directa con Jira API.
 
@@ -57,7 +57,7 @@ Frontend:
 - Contiene un formulario de carga de archivo CSV.
 - Usa `fetch('/api/upload', { method: 'POST', body: fd })` para enviar el archivo.
 - Muestra la respuesta JSON en pantalla.
-- Incluye un enlace externo a Grafana para visualizar un dashboard.
+- Incluye acceso al dashboard QA interno del proyecto.
 
 Backend:
 
@@ -103,7 +103,7 @@ Servicios externos mencionados:
 - Neon para base de datos, indicado en `README`.
 - GitHub para versionamiento, indicado en `README`.
 - Vercel para despliegue, indicado en `README`.
-- Grafana para dashboard externo, indicado en `README` y enlazado desde `public/index.html`.
+- Dashboard QA interno servido desde `public/qa-dashboard.html`.
 
 ### Manejo actual de archivos, formularios o cargas
 
@@ -130,17 +130,15 @@ Observación: el HTML muestra "Acepta archivos hasta ~10MB", pero el backend con
 
 ### Manejo actual de dashboards, gráficos o reportes
 
-Dashboard interno: No encontrado.
+Dashboard interno: Encontrado en `public/qa-dashboard.html`.
 
 Gráficos internos: No encontrado.
 
 Reportes internos: No encontrado.
 
-Se encontró un enlace externo a Grafana en `public/index.html`:
+No se encontró enlace externo de dashboard en `public/index.html`.
 
-- `https://diegocode81.grafana.net/public-dashboards/b7913af3102248a48f901f8b37d637ea`
-
-Inferencia técnica: actualmente el repositorio se encarga principalmente de ingestar datos hacia PostgreSQL y delega la visualización avanzada a Grafana.
+Inferencia técnica: actualmente el repositorio ingesta datos hacia PostgreSQL y expone una visualización QA interna básica.
 
 ### Manejo actual de autenticación, roles o permisos
 
@@ -188,13 +186,11 @@ Inferencia técnica: los datos Jira podrían contener issues de QA, bugs o incid
 
 No encontrado como módulo interno.
 
-Inferencia técnica: el dashboard externo de Grafana puede contener métricas, pero el repositorio no incluye consultas, paneles, definiciones de KPIs ni lógica de cálculo.
+Inferencia técnica: el dashboard interno puede contener métricas básicas, pero el repositorio todavía no incluye un motor avanzado de paneles, definiciones parametrizables de KPIs ni lógica de cálculo histórica.
 
 ### Dashboards
 
-Encontrado solo como enlace externo a Grafana en `public/index.html` y mención en `README`.
-
-No encontrado dashboard interno.
+Encontrado como dashboard interno en `public/qa-dashboard.html` y mención en `README`.
 
 ### Reportes
 
@@ -267,7 +263,7 @@ El sistema actual ya resuelve parte de la ingesta de datos Jira, pero con alcanc
 2. Validación estructural y semántica.
 3. Normalización a un modelo interno estable.
 4. Cálculo de KPIs QA.
-5. Visualización interna o publicación hacia Grafana.
+5. Visualización interna de KPIs QA.
 6. Persistencia de histórico para tendencias.
 
 Inferencia técnica: por el tamaño actual del repositorio, el MVP debería reutilizar el patrón existente de `public/` + `api/` si se busca una evolución incremental. Si el módulo crecerá en UI, filtros, comparativas y múltiples proyectos, convendría evaluar una migración posterior a una estructura más modular con carpetas `api/services`, `api/models`, `public` organizado o un framework frontend.
@@ -340,7 +336,7 @@ No encontrado actualmente un directorio de modelos ni migraciones.
 Recomendación MVP:
 
 - Dashboard interno simple en HTML estático con KPIs resumidos.
-- O mantener visualización en Grafana si se prioriza rapidez y los KPIs se calculan en SQL.
+- Mantener visualización interna simple si se prioriza rapidez y los KPIs se calculan desde el backend.
 
 Recomendación escalable:
 
@@ -510,8 +506,8 @@ Estos KPIs requieren mayor consistencia de datos, histórico persistente y defin
 
 ### Riesgos de acoplamiento
 
-- `public.raw_jira` parece ser una tabla cruda compartida con Grafana.
-- Cambiar su estructura o semántica podría romper dashboards externos.
+- `public.raw_jira` parece ser una tabla cruda usada por el flujo de carga y el dashboard QA interno.
+- Cambiar su estructura o semántica podría romper el dashboard QA interno.
 - Reutilizar el endpoint actual para una necesidad distinta podría afectar el flujo operativo existente.
 
 ### Riesgos de seguridad por carga de archivos
@@ -650,7 +646,7 @@ Recomendación:
 - ¿Qué estados deben considerarse cerrados para QA?
 - ¿Qué tipos de issue deben considerarse bugs o defectos?
 - ¿El módulo debe reemplazar el flujo actual o convivir con `/api/upload`?
-- ¿Los KPIs se mostrarán internamente o seguirán consumiéndose desde Grafana?
+- ¿Los KPIs se mostrarán solo internamente o también deberán exportarse?
 - ¿Debe existir histórico o solo snapshot actual?
 - ¿Quiénes podrán cargar archivos?
 - ¿Se requiere autenticación antes de exponer la carga?
@@ -665,7 +661,7 @@ Recomendación:
 2. Definir el diccionario de campos mínimos y equivalencias por idioma/campo custom.
 3. Definir qué estados Jira cuentan como abierto, cerrado, resuelto y reabierto.
 4. Decidir si el MVP será CSV, Excel o ambos.
-5. Decidir si el dashboard será interno o continuará en Grafana.
+5. Decidir el alcance del dashboard interno para MVP y fases posteriores.
 6. Diseñar el esquema de persistencia para snapshot o histórico.
 7. Definir controles mínimos de seguridad para carga de archivos.
 8. Incorporar pruebas para parsing, validación y cálculo de KPIs antes de producción.
