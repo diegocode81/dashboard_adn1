@@ -356,9 +356,13 @@ function filterAndRenderDeltas() {
   if (key)    filtered = filtered.filter((d) => d.epicKey === key);
   if (status) {
     filtered = filtered.filter((d) => {
-      if (status === 'inprogress') return d.progressPercent > 0 && d.progressPercent < 100;
-      if (status === 'completed')  return d.progressPercent >= 100 && d.totalCards > 0;
-      if (status === 'pending')    return d.progressPercent === 0;
+      // Filter is based on the delta's computed counters, NOT on a status field
+      if (status === 'pending')    return d.pendingCards > 0;
+      if (status === 'inprogress') return d.inProgressCards > 0;
+      if (status === 'blocked')    return d.blockedCards > 0;
+      if (status === 'completed')  return d.totalCards > 0 && d.progressPercent === 100;
+      if (status === 'notstarted') return d.totalCards > 0 && d.completedCards === 0 && d.inProgressCards === 0;
+      if (status === 'partial')    return d.progressPercent > 0 && d.progressPercent < 100;
       return true;
     });
   }
