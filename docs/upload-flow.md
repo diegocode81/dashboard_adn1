@@ -1,36 +1,40 @@
-# Flujo de carga CSV con Vercel Blob Server Upload
+# Flujo de carga CSV con Vercel Blob Client Upload
 
-## Por que se usa Server Upload
+## Por que se usa Client Upload
 
-El sistema usa Vercel Blob como almacenamiento temporal del CSV antes de procesarlo. En este proyecto no se usan subidas directas del navegador a Blob ni tokens generados para el cliente.
+Vercel Free rechaza requests grandes hacia Serverless Functions antes de que el handler pueda procesarlos. Por eso un CSV de Jira de aproximadamente 6MB puede fallar con `FUNCTION_PAYLOAD_TOO_LARGE` si se envia como multipart a `/api/upload`.
 
-El archivo se recibe en `POST /api/upload`, el backend lo guarda con el SDK oficial `@vercel/blob` usando `put()`, lee inmediatamente la URL publica generada y procesa el CSV para actualizar el snapshot QA.
+Para evitar ese limite, el navegador sube el CSV directamente a Vercel Blob. El backend recibe solo la URL publica del Blob y procesa el archivo desde esa URL.
 
 ## Flujo tecnico final
 
-1. El usuario selecciona el CSV en `public/index.html`.
-2. El frontend envia un `POST multipart` a `/api/upload`.
-3. `api/upload.js` recibe el archivo con `formidable`.
-4. `api/upload.js` ejecuta:
+1. El usuario selecciona `Jira.csv` en `public/index.html`.
+2. El frontend usa `upload()` de `@vercel/blob/client`.
+3. `upload()` solicita el token de subida a `POST /api/blob-upload`.
+4. El navegador sube el archivo directamente a Vercel Blob.
+5. Vercel Blob devuelve `blob.url`.
+6. El frontend llama a `POST /api/process-blob-upload` con:
 
-```js
-const blob = await put(filename, fileBuffer, {
-  access: 'public'
-});
+```json
+{
+  "url": "URL_DEL_BLOB"
+}
 ```
 
-5. El endpoint obtiene `blob.url`.
-6. El endpoint lee inmediatamente el CSV desde esa URL.
-7. El backend parsea el CSV, detecta delimitador coma o punto y coma, y lee columnas reales de `public.raw_jira`.
-8. El backend ejecuta `TRUNCATE TABLE public.raw_jira RESTART IDENTITY`.
-9. El backend inserta solo columnas existentes en `public.raw_jira`.
-10. El endpoint responde el resumen de filas, columnas cargadas, columnas ignoradas, duplicados y columnas importantes faltantes.
+7. `api/process-blob-upload.js` descarga el CSV desde esa URL publica.
+8. El backend parsea CSV y detecta delimitador coma o punto y coma.
+9. El backend lee columnas reales de `public.raw_jira`.
+10. El backend ejecuta `TRUNCATE TABLE public.raw_jira RESTART IDENTITY`.
+11. El backend inserta filas en lotes, solo en columnas existentes.
+12. El endpoint responde el resumen de carga.
 
 ## Endpoints involucrados
 
-- `POST /api/upload`: unico endpoint de carga usado por la pantalla principal.
+- `POST /api/blob-upload`: endpoint requerido por `@vercel/blob/client` para obtener el token de subida.
+- `POST /api/process-blob-upload`: recibe solo la URL del Blob y actualiza el snapshot en `public.raw_jira`.
+- `POST /api/upload`: deshabilitado para carga multipart directa; responde `410`.
 
-No existen endpoints para generar tokens de cliente ni para procesar URLs enviadas desde el navegador.
+La pantalla principal no envia el CSV completo a `/api/upload`.
 
 ## Variables de entorno necesarias
 
@@ -52,31 +56,30 @@ En local:
 4. Abrir `http://localhost:3000`.
 5. Seleccionar `Jira.csv`.
 6. Presionar `Subir y cargar`.
-7. Verificar que la respuesta indique `source: "server_upload_blob"` y `mode: "snapshot_truncate_reload"`.
+7. Verificar que la respuesta indique `mode: "blob_direct_upload_snapshot"`.
 
-## Prueba en Vercel
+## Prueba en Vercel Free
 
 1. Crear o conectar un Blob Store al proyecto.
 2. Confirmar que existe `BLOB_READ_WRITE_TOKEN` en las variables del proyecto.
 3. Confirmar las variables de PostgreSQL/Neon.
 4. Desplegar.
 5. Abrir la URL de Vercel.
-6. Subir `Jira.csv`.
-7. Verificar que `public.raw_jira` se trunque y vuelva a cargarse con el snapshot actualizado.
+6. Subir `Jira.csv` de aproximadamente 6MB.
+7. Verificar que no aparezca `FUNCTION_PAYLOAD_TOO_LARGE`.
+8. Verificar que `public.raw_jira` se trunque y vuelva a cargarse con el snapshot actualizado.
 
 ## Resultado esperado
 
 La respuesta esperada contiene:
 
 - `ok: true`
-- `source: "server_upload_blob"`
+- `message: "CSV cargado correctamente desde Blob"`
+- `mode: "blob_direct_upload_snapshot"`
 - `blobUrl`
-- `mode: "snapshot_truncate_reload"`
 - `totalRowsReceived`
 - `totalRowsInserted`
 - `totalColumnsReceived`
 - `totalColumnsInserted`
-- `insertedColumns`
 - `ignoredColumns`
-- `duplicatedColumns`
 - `missingImportantColumns`

@@ -55,14 +55,17 @@ Frontend:
 
 - Implementado como HTML, CSS y JavaScript vanilla en `public/index.html`.
 - Contiene un formulario de carga de archivo CSV.
-- Usa `fetch('/api/upload', { method: 'POST', body: fd })` para enviar el archivo.
+- Usa `@vercel/blob/client` para subir el CSV directamente a Vercel Blob.
+- Luego llama a `/api/process-blob-upload` enviando solo la URL del Blob.
 - Muestra la respuesta JSON en pantalla.
 - Incluye acceso al dashboard QA interno del proyecto.
 
 Backend:
 
 - Implementado como funciones serverless en `api/`.
-- `api/upload.js`: recibe un archivo multipart, parsea CSV, mapea columnas y carga datos en PostgreSQL.
+- `api/blob-upload.js`: genera el token de subida para Vercel Blob Client Upload.
+- `api/process-blob-upload.js`: recibe la URL del Blob, descarga el CSV, parsea, mapea columnas y carga datos en PostgreSQL.
+- `api/upload.js`: endpoint multipart directo deshabilitado para evitar límites de body en Vercel.
 - `api/_db.js`: administra un pool compartido de PostgreSQL.
 - `api/health.js`: valida conectividad a PostgreSQL y devuelve versión, latencia y timestamp.
 
@@ -71,7 +74,9 @@ Backend:
 Rutas encontradas:
 
 - `/`: servido por `public/index.html`.
-- `/api/upload`: endpoint `POST` para carga de CSV.
+- `/api/blob-upload`: endpoint `POST` para obtener token de carga directa a Blob.
+- `/api/process-blob-upload`: endpoint `POST` para procesar la URL del Blob y actualizar `public.raw_jira`.
+- `/api/upload`: endpoint `POST` deshabilitado para carga multipart directa.
 - `/api/health`: endpoint para health check de base de datos.
 
 No encontrado:
@@ -86,7 +91,8 @@ No encontrado un sistema de componentes formal.
 Elementos principales actuales:
 
 - Interfaz de carga en `public/index.html`.
-- Handler de carga en `api/upload.js`.
+- Handler de token Blob en `api/blob-upload.js`.
+- Handler de procesamiento de Blob en `api/process-blob-upload.js`.
 - Helper de base de datos en `api/_db.js`.
 - Health check en `api/health.js`.
 
@@ -95,7 +101,8 @@ Elementos principales actuales:
 Servicios internos encontrados:
 
 - `withClient(fn)` en `api/_db.js`: helper para adquirir y liberar clientes PostgreSQL desde un pool global.
-- Handler de carga CSV en `api/upload.js`.
+- Handler de token de carga en `api/blob-upload.js`.
+- Handler de carga CSV desde Blob en `api/process-blob-upload.js`.
 - Handler de health check en `api/health.js`.
 
 Servicios externos mencionados:
@@ -107,26 +114,25 @@ Servicios externos mencionados:
 
 ### Manejo actual de archivos, formularios o cargas
 
-Encontrado en `public/index.html` y `api/upload.js`.
+Encontrado en `public/index.html`, `api/blob-upload.js` y `api/process-blob-upload.js`.
 
 Frontend:
 
 - Input de archivo con `accept=".csv,text/csv"`.
-- Construcción de `FormData`.
-- Envío bajo la key `file`.
+- Carga directa a Vercel Blob desde el navegador.
+- Envío posterior de la URL del Blob a `/api/process-blob-upload`.
 - Estado visual de carga con spinner.
 - Renderizado de respuesta JSON o error.
 
 Backend:
 
-- `formidable` parsea multipart con `multiples: false`, `maxFileSize: 25 * 1024 * 1024` y `keepExtensions: true`.
-- El endpoint declara `bodyParser: false`, `sizeLimit: '25mb'` y `runtime: 'nodejs'`.
-- Lee el archivo temporal con `fs.readFile(up.filepath)`.
-- Convierte el buffer a UTF-8.
+- `api/blob-upload.js` usa `handleUpload` de `@vercel/blob/client`.
+- `api/process-blob-upload.js` recibe JSON con `url`.
+- Descarga el CSV desde la URL pública de Blob.
 - Detecta delimitador `,` o `;`.
 - Procesa CSV con `csv-parse/sync`.
 
-Observación: el HTML muestra "Acepta archivos hasta ~10MB", pero el backend configura `25mb`. Existe una inconsistencia de comunicación de límite.
+Observación: la pantalla principal no envía el archivo completo a una Serverless Function; evita `FUNCTION_PAYLOAD_TOO_LARGE` usando Vercel Blob Client Upload.
 
 ### Manejo actual de dashboards, gráficos o reportes
 
@@ -242,7 +248,7 @@ Evidencias:
 Dependencias en `package.json`:
 
 - `csv-parse`: parseo de CSV.
-- `formidable`: recepción de archivos multipart.
+- `@vercel/blob`: carga directa a Blob y generación de token de subida.
 - `pg`: conexión a PostgreSQL.
 
 Dependencias no encontradas:
