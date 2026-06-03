@@ -18,48 +18,43 @@ const ASSIGNEE_COLS = ['persona_asignada', 'assignee'];
 const PARENT_COLS   = ['clave_principal', 'parent', 'parent_key'];
 const PSUM_COLS     = ['parent_summary'];
 
-// ─── Domain detection (text inference only) ───────────────────────────────
-// Bracket codes take priority; then plain-text patterns as fallback.
-// Most specific patterns listed first to avoid partial collisions.
+// ─── Domain detection ─────────────────────────────────────────────────────
+// Evaluated against epicSummary only.
+// Order matters: more-specific patterns before less-specific ones.
 const DOMAIN_PATTERNS = [
-  // ── Bracket codes (Jira epic naming convention) ──────────────────────────
-  { re: /\[APP\s*EXT\]/i,       domain: () => 'Aplicaciones Externas' },
-  { re: /\[DP-EQ1\]/i,          domain: () => 'EQ1 - Originación de Crédito' },
-  { re: /\[EQ1\]/i,             domain: () => 'EQ1 - Originación de Crédito' },
-  { re: /\[EQ2\]/i,             domain: () => 'EQ2 - Relación con el Cliente' },
-  { re: /\[EQ3\]/i,             domain: () => 'EQ3 - Aplicaciones Externas' },
-  { re: /\[EQ6\]/i,             domain: () => 'EQ6 - Soporte URPIPRO' },
-  { re: /\[EQD\]/i,             domain: () => 'Diseño UX' },
-  { re: /\[UX\]/i,              domain: () => 'Diseño UX' },
-  { re: /\[CR\]/i,              domain: () => 'Relación con el Cliente' },
-  { re: /\[LO\]/i,              domain: () => 'Originación / Línea Operativa' },
-  { re: /\[QE\]/i,              domain: () => 'QA / Calidad' },
-  { re: /\[QA\]/i,              domain: () => 'QA / Calidad' },
-  { re: /\[BE\]/i,              domain: () => 'Backend' },
-  { re: /\[FE\]/i,              domain: () => 'Frontend' },
-  // ── Bare codes (no brackets) ─────────────────────────────────────────────
-  { re: /\bEQD\b/i,             domain: () => 'Diseño UX' },
-  { re: /\bDP-EQ1\b/i,         domain: () => 'EQ1 - Originación de Crédito' },
-  { re: /\bEQ1\b/i,            domain: () => 'EQ1 - Originación de Crédito' },
-  { re: /\bEQ2\b/i,            domain: () => 'EQ2 - Relación con el Cliente' },
-  { re: /\bEQ3\b/i,            domain: () => 'EQ3 - Aplicaciones Externas' },
-  { re: /\bEQ6\b/i,            domain: () => 'EQ6 - Soporte URPIPRO' },
-  // ── Natural language ─────────────────────────────────────────────────────
-  { re: /Relaci[oó]n\s+con\s+el\s+cliente/i, domain: () => 'Relación con el Cliente' },
-  { re: /Aplicaciones\s+Externas/i,           domain: () => 'Aplicaciones Externas' },
-  { re: /Dise[ñn]o\s+UX/i,                   domain: () => 'Diseño UX' },
-  { re: /Originaci[oó]n/i,                    domain: () => 'Originación / Línea Operativa' },
-  { re: /URPIPRO/i,                           domain: () => 'EQ6 - Soporte URPIPRO' },
-  { re: /Soporte/i,                           domain: () => 'Soporte' },
+  // ── Bracket codes — evaluated first (highest specificity) ────────────────
+  { re: /\[APP\s*EXT\]/i,  domain: 'Aplicaciones Externas'          },
+  { re: /\[DP-EQ1\]/i,     domain: 'EQ1 - Originación de Crédito'  },
+  { re: /\[EQ1\]/i,        domain: 'EQ1 - Originación de Crédito'  },
+  { re: /\[EQ2\]/i,        domain: 'EQ2 - Relación con el Cliente'  },
+  { re: /\[EQ3\]/i,        domain: 'EQ3 - Aplicaciones Externas'   },
+  { re: /\[EQ6\]/i,        domain: 'EQ6 - Soporte URPIPRO'         },
+  { re: /\[EQD\]/i,        domain: 'Diseño UX'                     },
+  { re: /\[UX\]/i,         domain: 'Diseño UX'                     },
+  { re: /\[CR\]/i,         domain: 'Relación con el Cliente'        },
+  { re: /\[LO\]/i,         domain: 'Originación de Crédito'         },
+  { re: /\[QE\]/i,         domain: 'QA / Calidad'                  },
+  { re: /\[QA\]/i,         domain: 'QA / Calidad'                  },
+  { re: /\[BE\]/i,         domain: 'Backend'                       },
+  { re: /\[FE\]/i,         domain: 'Frontend'                      },
+  // ── Bare codes (no brackets) — second priority ────────────────────────────
+  { re: /\bDP-EQ1\b/i,    domain: 'EQ1 - Originación de Crédito'  },
+  { re: /\bEQ1\b/i,       domain: 'EQ1 - Originación de Crédito'  },
+  { re: /\bEQ2\b/i,       domain: 'EQ2 - Relación con el Cliente'  },
+  { re: /\bEQ3\b/i,       domain: 'EQ3 - Aplicaciones Externas'   },
+  { re: /\bEQ6\b/i,       domain: 'EQ6 - Soporte URPIPRO'         },
+  { re: /\bEQD\b/i,       domain: 'Diseño UX'                     },
 ];
 
-function detectDomain(...texts) {
-  for (const text of texts) {
-    if (!text) continue;
-    for (const { re, domain } of DOMAIN_PATTERNS) {
-      const m = text.match(re);
-      if (m) return domain(m);
-    }
+/**
+ * Detects the domain from an epic's summary.
+ * Only evaluates epicSummary — not child issues.
+ * Returns "Sin clasificar" if no pattern matches.
+ */
+function detectDomain(epicSummary) {
+  if (!epicSummary) return 'Sin clasificar';
+  for (const { re, domain } of DOMAIN_PATTERNS) {
+    if (re.test(epicSummary)) return domain;
   }
   return 'Sin clasificar';
 }
@@ -213,7 +208,7 @@ export default async function handler(req, res) {
         deltaMap.set(epic.k, {
           epicKey:          epic.k,
           epicSummary:      epic.s || epic.k,
-          domain:           detectDomain(epic.s, epic.psum),
+          domain:           detectDomain(epic.s),
           totalCards:       0,
           completedCards:   0,
           inProgressCards:  0,

@@ -197,7 +197,14 @@ function renderDeltasKpis(deltas) {
 
 function populateDomainFilter(deltas) {
   const current = dEl.filterDomain.value;
-  const domains = [...new Set(deltas.map((d) => d.domain))].sort();
+
+  // Collect unique domains; sort alphabetically, "Sin clasificar" always last
+  const allDomains = [...new Set(deltas.map((d) => d.domain))];
+  const domains = allDomains
+    .filter((d) => d !== 'Sin clasificar')
+    .sort((a, b) => a.localeCompare(b, 'es'));
+  if (allDomains.includes('Sin clasificar')) domains.push('Sin clasificar');
+
   dEl.filterDomain.innerHTML = '<option value="">Todos</option>';
   for (const dom of domains) {
     const opt = document.createElement('option');
