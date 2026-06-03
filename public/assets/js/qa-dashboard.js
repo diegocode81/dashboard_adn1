@@ -344,6 +344,43 @@ function renderDeltasTable(deltas) {
   }
 }
 
+// ── Status filter — uses computed counters, NOT a textual status field ─────
+
+function matchesDeltaStatusFilter(delta, selectedStatus) {
+  if (!selectedStatus || selectedStatus === 'Todos') return true;
+
+  const totalCards      = Number(delta.totalCards      || 0);
+  const completedCards  = Number(delta.completedCards  || 0);
+  const inProgressCards = Number(delta.inProgressCards || 0);
+  const pendingCards    = Number(delta.pendingCards    || 0);
+  const blockedCards    = Number(delta.blockedCards    || 0);
+  const progressPercent = Number(delta.progressPercent || 0);
+
+  let result;
+  if (selectedStatus === 'Finalizados')      result = completedCards > 0;
+  else if (selectedStatus === 'En progreso') result = inProgressCards > 0;
+  else if (selectedStatus === 'Pendientes')  result = pendingCards > 0;
+  else if (selectedStatus === 'Bloqueados')  result = blockedCards > 0;
+  else if (selectedStatus === 'Completados 100%') result = totalCards > 0 && progressPercent === 100;
+  else if (selectedStatus === 'Sin avance')  result = totalCards > 0 && completedCards === 0 && inProgressCards === 0;
+  else if (selectedStatus === 'Avance parcial') result = progressPercent > 0 && progressPercent < 100;
+  else result = true;
+
+  // Debug log — remove after validation
+  console.log('DELTA_STATUS_FILTER_DEBUG', {
+    selectedStatus,
+    epicKey: delta.epicKey,
+    completedCards,
+    inProgressCards,
+    pendingCards,
+    blockedCards,
+    progressPercent,
+    result,
+  });
+
+  return result;
+}
+
 // ── Filter + render ────────────────────────────────────
 
 function filterAndRenderDeltas() {
@@ -354,18 +391,7 @@ function filterAndRenderDeltas() {
   let filtered = allDeltas;
   if (domain) filtered = filtered.filter((d) => d.domain === domain);
   if (key)    filtered = filtered.filter((d) => d.epicKey === key);
-  if (status) {
-    filtered = filtered.filter((d) => {
-      // Filter is based on the delta's computed counters, NOT on a status field
-      if (status === 'pending')    return d.pendingCards > 0;
-      if (status === 'inprogress') return d.inProgressCards > 0;
-      if (status === 'blocked')    return d.blockedCards > 0;
-      if (status === 'completed')  return d.totalCards > 0 && d.progressPercent === 100;
-      if (status === 'notstarted') return d.totalCards > 0 && d.completedCards === 0 && d.inProgressCards === 0;
-      if (status === 'partial')    return d.progressPercent > 0 && d.progressPercent < 100;
-      return true;
-    });
-  }
+  filtered = filtered.filter((d) => matchesDeltaStatusFilter(d, status));
 
   renderDeltasTable(filtered);
 }
