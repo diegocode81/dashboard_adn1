@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dashboard QA - Jira KPIs</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/qa-dashboard.css" />
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div>
+        <a class="back-link" href="/">Volver a carga CSV</a>
+        <h1>Dashboard QA - Jira KPIs</h1>
+        <p class="subtitle">Indicadores internos calculados desde <code>public.raw_jira</code>.</p>
+      </div>
+      <div class="meta-panel">
+        <span class="meta-label">Última actualización</span>
+        <strong id="updatedAt">Consultando datos...</strong>
+        <button id="refreshBtn" type="button">Actualizar</button>
+      </div>
+    </header>
+
+    <main>
+      <section id="stateMessage" class="state-message" aria-live="polite">
+        Cargando dashboard QA...
+      </section>
+
+      <section id="warningsPanel" class="warnings hidden" aria-live="polite">
+        <h2>Warnings</h2>
+        <ul id="warningsList"></ul>
+      </section>
+
+      <section class="kpi-grid" aria-label="KPIs principales">
+        <article class="kpi-card">
+          <span>Total issues</span>
+          <strong id="totalIssues">0</strong>
+        </article>
+        <article class="kpi-card">
+          <span>Total bugs</span>
+          <strong id="totalBugs">0</strong>
+        </article>
+        <article class="kpi-card">
+          <span>Bugs abiertos</span>
+          <strong id="openBugs">0</strong>
+        </article>
+        <article class="kpi-card">
+          <span>Bugs cerrados</span>
+          <strong id="closedBugs">0</strong>
+        </article>
+        <article class="kpi-card">
+          <span>Tasa de cierre</span>
+          <strong id="closureRate">0%</strong>
+        </article>
+        <article class="kpi-card">
+          <span>Prom. resolución</span>
+          <strong id="avgResolutionDays">0 días</strong>
+        </article>
+        <article class="kpi-card">
+          <span>Aging bugs abiertos</span>
+          <strong id="openBugAgingAvgDays">0 días</strong>
+        </article>
+      </section>
+
+      <section class="tables-grid" aria-label="Resúmenes agrupados">
+        <article class="table-section">
+          <div class="section-header">
+            <h2>Resumen por estado</h2>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Estado</th>
+                  <th>Issues</th>
+                </tr>
+              </thead>
+              <tbody id="byStatusBody">
+                <tr><td colspan="2">Sin datos</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="table-section">
+          <div class="section-header">
+            <h2>Resumen por prioridad</h2>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Prioridad</th>
+                  <th>Issues</th>
+                </tr>
+              </thead>
+              <tbody id="byPriorityBody">
+                <tr><td colspan="2">Sin datos</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="table-section">
+          <div class="section-header">
+            <h2>Resumen por tipo de incidencia</h2>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tipo</th>
+                  <th>Issues</th>
+                </tr>
+              </thead>
+              <tbody id="byIssueTypeBody">
+                <tr><td colspan="2">Sin datos</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <script src="/assets/js/qa-dashboard.js" defer></script>
+</body>
+</html>

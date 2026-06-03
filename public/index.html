@@ -137,6 +137,11 @@
     }
     .btn:hover{background:var(--primary-600)}
     .btn[disabled]{opacity:.6;cursor:not-allowed}
+    .btn.secondary{
+      background:#0f172a;
+      text-decoration:none;
+    }
+    .btn.secondary:hover{background:#334155}
     .spinner{
       width:16px;height:16px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;
       animation:spin .8s linear infinite;
@@ -203,6 +208,10 @@
       </div>
 
       <pre id="result" class="result" aria-live="polite">{ }</pre>
+
+      <div class="row">
+        <a class="btn secondary" href="/qa-dashboard.html">Ver dashboard QA interno</a>
+      </div>
     </section>
 
     <footer>
