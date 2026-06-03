@@ -24,6 +24,69 @@ export function toDb(v) {
   return v;
 }
 
+const MONTH_MAP = {
+  ene: '01', feb: '02', mar: '03', abr: '04',
+  may: '05', jun: '06', jul: '07', ago: '08',
+  sep: '09', oct: '10', nov: '11', dic: '12',
+};
+
+export function normalizeJiraDate(value) {
+  if (value == null || value === '') return null;
+  if (typeof value !== 'string') return null;
+
+  const trimmed = value.trim();
+  if (trimmed === '') return null;
+
+  // Si ya está en formato ISO (YYYY-MM-DD...) devolver tal cual
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+    return trimmed;
+  }
+
+  // Formato Jira español: dd/mmm/yy HH:MM AM/PM
+  // Ejemplos: "30/abr/26 12:17 PM", "02/may/26 08:45 AM"
+  const match = trimmed.match(
+    /^(\d{1,2})\/([a-z]{3})\/(\d{2,4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)$/i
+  );
+
+  if (match) {
+    const day = match[1].padStart(2, '0');
+    const monthAbbr = match[2].toLowerCase();
+    const yearRaw = match[3];
+    const year = yearRaw.length === 2 ? `20${yearRaw}` : yearRaw;
+    const month = MONTH_MAP[monthAbbr];
+
+    if (!month) {
+      console.warn('INVALID_JIRA_DATE', { value, reason: 'unknown month abbreviation' });
+      return null;
+    }
+
+    let hour = parseInt(match[4], 10);
+    const minute = match[5];
+    const ampm = match[6].toUpperCase();
+
+    if (ampm === 'AM') {
+      if (hour === 12) hour = 0; // 12:xx AM -> 00:xx
+    } else {
+      if (hour !== 12) hour += 12; // 01:xx PM -> 13:xx, 12:xx PM -> 12:xx
+    }
+
+    const hourStr = String(hour).padStart(2, '0');
+    return `${year}-${month}-${day} ${hourStr}:${minute}:00`;
+  }
+
+  console.warn('INVALID_JIRA_DATE', { value, reason: 'unrecognized format' });
+  return null;
+}
+
+// Columnas que deben normalizarse como timestamp antes del INSERT
+const TIMESTAMP_COLUMNS = new Set([
+  'fecha_creacion',
+  'fecha_cierre',
+  'actualizada',
+  'fecha_en_pruebas_qa',
+  'fecha_pase_a_produccion',
+]);
+
 export function quoteIdent(identifier) {
   return `"${identifier.replace(/"/g, '""')}"`;
 }
@@ -314,7 +377,8 @@ export async function processJiraCsvSnapshot(text) {
         const col = insertCols[i];
         const m = mappedByTarget.get(col);
         if (!m) throw new Error(`Mapping inconsistente para columna ${col}`);
-        arr[i] = toDb(row[m.uniqueKey]);
+        const raw = toDb(row[m.uniqueKey]);
+        arr[i] = TIMESTAMP_COLUMNS.has(col) ? normalizeJiraDate(raw) : raw;
       }
       return arr;
     });
