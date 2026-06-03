@@ -230,15 +230,83 @@ function populateDeltaFilter(deltas) {
   }
 }
 
+// ── Child issue status filter ──────────────────────────
+
+/**
+ * Filters a child issue by the selected status.
+ * Uses the real status text of the issue (case-insensitive, normalized).
+ * For aggregate-level filters (Completados 100%, Sin avance, Avance parcial)
+ * all children are shown.
+ */
+function matchesChildIssueStatusFilter(issue, selectedStatus) {
+  if (!selectedStatus || selectedStatus === 'Todos') return true;
+
+  // These filters apply only at the Delta level — show all children
+  if (
+    selectedStatus === 'Completados 100%' ||
+    selectedStatus === 'Sin avance'       ||
+    selectedStatus === 'Avance parcial'
+  ) return true;
+
+  const s = (issue.status || '').toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+
+  if (selectedStatus === 'Finalizados') {
+    return (
+      s === 'finalizada'    || s === 'finalizado'  ||
+      s === 'done'          || s === 'closed'       ||
+      s === 'resolved'      || s === 'cerrada'      ||
+      s === 'cerrado'       || s.includes('finaliz') ||
+      s.includes('cerrad')  || s.includes('resolv')  ||
+      s.includes('done')    || s.includes('closed')
+    );
+  }
+  if (selectedStatus === 'En progreso') {
+    return (
+      s.includes('desarrollo')       || s.includes('in progress')     ||
+      s.includes('progress')         || s.includes('verificac')        ||
+      s.includes('listo para')       || s.includes('en curso')         ||
+      s === 'en verificacion'        || s === 'listo para verificacion'||
+      s === 'listo para po'
+    );
+  }
+  if (selectedStatus === 'Pendientes') {
+    return (
+      s.includes('tareas por hacer') || s === 'to do'    ||
+      s === 'todo'                   || s === 'open'      ||
+      s === 'backlog'                || s.includes('pendiente') ||
+      s.includes('por hacer')
+    );
+  }
+  if (selectedStatus === 'Bloqueados') {
+    return (
+      s.includes('bloqueado') || s.includes('blocked') || s.includes('impedimento')
+    );
+  }
+  return true;
+}
+
 // ── Child detail table ─────────────────────────────────
 
-function buildChildDetail(childIssues) {
+function buildChildDetail(childIssues, selectedStatus) {
+  const visible = (childIssues || []).filter((i) =>
+    matchesChildIssueStatusFilter(i, selectedStatus)
+  );
+
   const wrap = document.createElement('div');
   wrap.className = 'child-table-wrap';
+
   if (!childIssues || !childIssues.length) {
     wrap.textContent = 'Esta épica no tiene issues asociadas.';
     return wrap;
   }
+  if (!visible.length) {
+    wrap.textContent = 'No hay cards hijas para el estado seleccionado.';
+    return wrap;
+  }
+
   const table = document.createElement('table');
   table.className = 'child-table';
   table.innerHTML = `
@@ -248,7 +316,7 @@ function buildChildDetail(childIssues) {
       </tr>
     </thead>`;
   const tbody = document.createElement('tbody');
-  for (const issue of childIssues) {
+  for (const issue of visible) {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td><code>${escapeHtml(issue.key)}</code></td>
@@ -265,7 +333,7 @@ function buildChildDetail(childIssues) {
 
 // ── Table render ───────────────────────────────────────
 
-function renderDeltasTable(deltas) {
+function renderDeltasTable(deltas, selectedStatus) {
   const tbody = dEl.deltasBody;
   tbody.innerHTML = '';
 
@@ -329,7 +397,7 @@ function renderDeltasTable(deltas) {
     const detailTd = document.createElement('td');
     detailTd.colSpan = 8;
     detailTd.className = 'detail-cell';
-    detailTd.appendChild(buildChildDetail(delta.childIssues));
+    detailTd.appendChild(buildChildDetail(delta.childIssues, selectedStatus));
     detailTr.appendChild(detailTd);
     tbody.appendChild(detailTr);
 
@@ -393,7 +461,7 @@ function filterAndRenderDeltas() {
   if (key)    filtered = filtered.filter((d) => d.epicKey === key);
   filtered = filtered.filter((d) => matchesDeltaStatusFilter(d, status));
 
-  renderDeltasTable(filtered);
+  renderDeltasTable(filtered, status);
 }
 
 // ── Load from API ──────────────────────────────────────
