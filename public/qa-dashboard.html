@@ -64,6 +64,53 @@
         </article>
       </section>
 
+      <!-- ─── Seguimiento de Deltas por Equipo ─── -->
+      <section class="deltas-section" aria-label="Seguimiento de Deltas por Equipo">
+        <div class="section-header deltas-header">
+          <h2>Seguimiento de Deltas por Equipo</h2>
+          <div class="deltas-filters">
+            <label>
+              <span>Equipo</span>
+              <select id="filterTeam">
+                <option value="">Todos</option>
+              </select>
+            </label>
+            <label>
+              <span>Épica / Delta</span>
+              <select id="filterEpic">
+                <option value="">Todas</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="deltas-content">
+          <div id="deltasStateMessage" class="state-message hidden" aria-live="polite"></div>
+          <div id="deltasWarningsPanel" class="warnings hidden" aria-live="polite">
+            <h2>Advertencias de Deltas</h2>
+            <ul id="deltasWarningsList"></ul>
+          </div>
+          <div class="table-wrap">
+            <table id="deltasTable">
+              <thead>
+                <tr>
+                  <th>Equipo</th>
+                  <th>Delta / Épica</th>
+                  <th class="num">Total</th>
+                  <th class="num">✓ Finalizadas</th>
+                  <th class="num">↻ En progreso</th>
+                  <th class="num">○ Pendientes</th>
+                  <th class="num">✕ Bloqueadas</th>
+                  <th class="progress-th">% Avance</th>
+                </tr>
+              </thead>
+              <tbody id="deltasBody">
+                <tr><td colspan="8">Cargando análisis de Deltas...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <section class="tables-grid" aria-label="Resúmenes agrupados">
         <article class="table-section">
           <div class="section-header">

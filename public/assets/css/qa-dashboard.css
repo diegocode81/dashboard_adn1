@@ -309,3 +309,227 @@ tbody tr:last-child td {
     min-height: 104px;
   }
 }
+
+/* ═══════════════════════════════════════════
+   SEGUIMIENTO DE DELTAS POR EQUIPO
+   ═══════════════════════════════════════════ */
+
+.deltas-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 22px;
+  overflow: hidden;
+}
+
+/* Header del panel de deltas con filtros alineados a la derecha */
+.deltas-header {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.deltas-filters {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.deltas-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.deltas-filters label span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.deltas-filters select {
+  appearance: none;
+  background: var(--surface);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235b6575' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-position: right 8px center;
+  background-repeat: no-repeat;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  min-width: 180px;
+  padding: 7px 32px 7px 10px;
+}
+
+.deltas-filters select:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+/* Contenido interior (mensajes + tabla) */
+.deltas-content > .state-message,
+.deltas-content > .warnings {
+  margin: 12px 16px;
+}
+
+/* ── Tabla de Deltas ── */
+
+/* Columnas numéricas alineadas a la derecha */
+#deltasTable th.num,
+#deltasTable td.num {
+  text-align: right;
+  width: 88px;
+}
+
+/* Columna de progreso: ancho fijo, alineación izquierda (override del global) */
+#deltasTable th.progress-th,
+#deltasTable td.progress-cell {
+  text-align: left;
+  width: 168px;
+}
+
+/* Evitar que last-child global afecte a la última columna de la tabla */
+#deltasTable th:last-child,
+#deltasTable td:last-child {
+  text-align: left;
+  width: 168px;
+}
+
+/* Celda de épica */
+.epic-cell {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.expand-btn {
+  appearance: none;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 3px 6px;
+}
+
+.expand-btn:hover {
+  background: var(--surface-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.epic-key {
+  color: var(--primary);
+  flex-shrink: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.epic-summary {
+  color: var(--text);
+  font-size: 13px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Barras de progreso ── */
+
+.progress-bar-wrap {
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  height: 8px;
+  margin-bottom: 4px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  border-radius: 100px;
+  height: 100%;
+  transition: width .4s ease;
+}
+
+.progress-bar.progress-low {
+  background: #e05c5c;
+}
+
+.progress-bar.progress-medium {
+  background: #e09b30;
+}
+
+.progress-bar.progress-high {
+  background: var(--success);
+}
+
+.progress-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* ── Fila de detalle de cards hijas ── */
+
+.delta-detail-row.hidden {
+  display: none;
+}
+
+.detail-cell {
+  background: var(--surface-soft);
+  padding: 0 !important;
+  border-bottom: 2px solid var(--border) !important;
+}
+
+.child-table-wrap {
+  padding: 12px 20px 16px;
+}
+
+/* child-table: override completo de alineaciones globales */
+.child-table {
+  width: 100%;
+}
+
+.child-table th,
+.child-table td {
+  font-size: 13px;
+  padding: 8px 12px;
+  text-align: left;
+  width: auto;
+}
+
+.child-table th:last-child,
+.child-table td:last-child {
+  text-align: left;
+  width: auto;
+}
+
+@media (max-width: 980px) {
+  .deltas-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .deltas-filters {
+    width: 100%;
+  }
+
+  .deltas-filters select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .epic-summary {
+    display: none;
+  }
+}
