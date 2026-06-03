@@ -486,10 +486,22 @@ tbody tr:last-child td {
 
 /* ── Epic cell ── */
 
+.epic-cell-td {
+  max-width: 300px;
+}
+
 .epic-cell {
-  align-items: center;
+  align-items: flex-start;
   display: flex;
   gap: 8px;
+  min-width: 0;
+}
+
+/* Vertical stack: key on top, summary below */
+.epic-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
 }
 
@@ -504,6 +516,7 @@ tbody tr:last-child td {
   font-size: 9px;
   font-weight: 800;
   line-height: 1;
+  margin-top: 2px;
   padding: 3px 6px;
 }
 
@@ -515,19 +528,20 @@ tbody tr:last-child td {
 
 .epic-key {
   color: var(--primary);
-  flex-shrink: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-size: 12px;
   white-space: nowrap;
 }
 
+/* Summary: max 2 lines, then ellipsis; full text visible on hover via title */
 .epic-summary {
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   color: var(--text);
+  display: -webkit-box;
   font-size: 13px;
-  min-width: 0;
+  line-height: 1.4;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* ── Progress bars ── */

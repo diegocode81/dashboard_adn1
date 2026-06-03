@@ -296,8 +296,10 @@ function renderDeltasTable(deltas) {
     tdDelta.innerHTML = `
       <div class="epic-cell">
         <button class="expand-btn" aria-expanded="false" aria-label="Expandir detalle">&#9654;</button>
-        <span class="epic-key">${escapeHtml(delta.epicKey)}</span>
-        <span class="epic-summary">${escapeHtml(delta.epicSummary)}</span>
+        <div class="epic-text">
+          <span class="epic-key">${escapeHtml(delta.epicKey)}</span>
+          <span class="epic-summary" title="${escapeHtml(delta.epicSummary)}">${escapeHtml(delta.epicSummary)}</span>
+        </div>
       </div>`;
 
     const tdNum = (val) => {
