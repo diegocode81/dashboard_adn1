@@ -241,19 +241,12 @@ function populateDeltaFilter(deltas) {
 function matchesChildIssueStatusFilter(issue, selectedStatus) {
   if (!selectedStatus || selectedStatus === 'Todos') return true;
 
-  // These filters apply only at the Delta level — show all children
-  if (
-    selectedStatus === 'Completados 100%' ||
-    selectedStatus === 'Sin avance'       ||
-    selectedStatus === 'Avance parcial'
-  ) return true;
-
   const s = (issue.status || '').toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .trim();
 
-  if (selectedStatus === 'Finalizados') {
+  if (selectedStatus === 'Finalizadas') {
     return (
       s === 'finalizada'    || s === 'finalizado'  ||
       s === 'done'          || s === 'closed'       ||
@@ -280,7 +273,7 @@ function matchesChildIssueStatusFilter(issue, selectedStatus) {
       s.includes('por hacer')
     );
   }
-  if (selectedStatus === 'Bloqueados') {
+  if (selectedStatus === 'Bloqueadas') {
     return (
       s.includes('bloqueado') || s.includes('blocked') || s.includes('impedimento')
     );
@@ -425,13 +418,10 @@ function matchesDeltaStatusFilter(delta, selectedStatus) {
   const progressPercent = Number(delta.progressPercent || 0);
 
   let result;
-  if (selectedStatus === 'Finalizados')      result = completedCards > 0;
+  if      (selectedStatus === 'Finalizadas') result = completedCards > 0;
   else if (selectedStatus === 'En progreso') result = inProgressCards > 0;
   else if (selectedStatus === 'Pendientes')  result = pendingCards > 0;
-  else if (selectedStatus === 'Bloqueados')  result = blockedCards > 0;
-  else if (selectedStatus === 'Completados 100%') result = totalCards > 0 && progressPercent === 100;
-  else if (selectedStatus === 'Sin avance')  result = totalCards > 0 && completedCards === 0 && inProgressCards === 0;
-  else if (selectedStatus === 'Avance parcial') result = progressPercent > 0 && progressPercent < 100;
+  else if (selectedStatus === 'Bloqueadas')  result = blockedCards > 0;
   else result = true;
 
   // Debug log — remove after validation
